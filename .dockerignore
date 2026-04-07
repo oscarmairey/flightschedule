@@ -1,0 +1,33 @@
+# CAVOK — exclude bulky / generated / sensitive paths from the Docker
+# build context so `docker compose build` is fast and reproducible.
+#
+# The Dockerfile installs deps from package.json+pnpm-lock.yaml inside
+# the deps stage, so the host's node_modules is not needed in the
+# context. Likewise the host's .next/ is generated and would just slow
+# the COPY.
+
+node_modules
+.next
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+.vscode
+.idea
+.DS_Store
+*.log
+npm-debug.log*
+.pnpm-debug.log*
+coverage
+.nyc_output
+README.md
+PRD.md
+CLAUDE.md
+AGENTS.md
+docs
+prisma/migrations/.gitkeep
+src/generated
+.dockerignore
+Dockerfile.dev
+docker-compose.yml

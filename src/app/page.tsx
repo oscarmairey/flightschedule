@@ -1,7 +1,12 @@
-import { redirect } from "next/navigation";
+// CAVOK — root redirect.
+//
+// Authenticated → /dashboard. Otherwise → /login. The proxy will then
+// kick the user to /setup-password if `mustResetPw` is set.
 
-export default function HomePage() {
-  // V1: TODO once auth is wired, redirect based on session
-  // (authenticated → /dashboard, otherwise → /login)
-  redirect("/login");
+import { redirect } from "next/navigation";
+import { auth } from "@/auth";
+
+export default async function HomePage() {
+  const session = await auth();
+  redirect(session?.user ? "/dashboard" : "/login");
 }

@@ -1,17 +1,24 @@
-// CAVOK route protection middleware
+// CAVOK route protection — Next.js 16 `proxy.ts` convention
+// (formerly known as `middleware.ts`).
+//
+// Runs on the EDGE runtime: must NOT import the Prisma client or anything
+// that pulls in Node.js APIs (`node:path`, `node:fs`, etc). That's why this
+// file uses `@/auth.config` (edge-safe) and instantiates a local NextAuth
+// here, rather than importing the full `@/auth` (which uses Prisma).
 //
 // Two layers of access control:
 //   1. /admin/*       → requires session AND role === ADMIN
 //   2. /dashboard, /flights, /calendar, /account → requires session
 //
-// The /api/auth/* endpoints, /login, and static assets are always public.
-//
 // Defense-in-depth: pages and route handlers MUST also re-check session
-// server-side. This middleware is a coarse filter, not the security
-// boundary on its own.
+// server-side. This proxy is a coarse filter, not the security boundary
+// on its own.
 
-import { auth } from "@/auth";
+import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
+import { authConfig } from "@/auth.config";
+
+const { auth } = NextAuth(authConfig);
 
 const PUBLIC_PATHS = new Set<string>(["/login", "/setup-password"]);
 
@@ -63,7 +70,10 @@ export default auth((req) => {
 });
 
 export const config = {
-  // Skip middleware for static assets, _next internals, and auth endpoints.
-  // Auth.js needs to handle its own routes without middleware interference.
-  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\.).*)"],
+  // Skip proxy for static assets, _next internals, auth endpoints,
+  // and webhook endpoints (Stripe must reach the route handler raw —
+  // a 302 here breaks signature verification).
+  matcher: [
+    "/((?!api/auth|api/webhooks|_next/static|_next/image|favicon.ico|.*\\.).*)",
+  ],
 };

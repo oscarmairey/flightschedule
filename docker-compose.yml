@@ -26,7 +26,9 @@ services:
       # 127.0.0.1 binding — DB is reachable only from the host machine,
       # never from the network. The `web` service connects via the docker
       # bridge network using hostname `db` instead.
-      - "127.0.0.1:5432:5432"
+      # Host port 5442 (not 5432) to stay clear of any other Postgres on
+      # the host (e.g. the library app uses 5433 — we keep our own lane).
+      - "127.0.0.1:5442:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -38,7 +40,8 @@ services:
   web:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+    image: cavok-web:latest
     container_name: cavok-web
     restart: unless-stopped
     depends_on:
@@ -47,29 +50,20 @@ services:
     environment:
       # Override DATABASE_URL to use the in-network db hostname
       DATABASE_URL: ${DATABASE_URL_INTERNAL}
-      NODE_ENV: development
+      NODE_ENV: production
       TZ: Europe/Paris
+      # next/server reads NEXTAUTH_URL for the canonical app origin
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
     env_file:
       - .env
     ports:
-      # Host port 3001 → container port 3000.
-      # We don't use 3000 on the host because library.oscarmairey.com
-      # is already proxied to localhost:3000 in /etc/caddy/Caddyfile.
-      # 127.0.0.1 binding — Caddy on the host proxies cavok.oscarmairey.com → 3001.
-      - "127.0.0.1:3001:3000"
-    volumes:
-      # Bind-mount the project for hot reload
-      - .:/app
-      # Use a named volume for node_modules so the container's install
-      # isn't shadowed by the host's (and so cross-OS native modules work)
-      - node_modules:/app/node_modules
-      # Same idea for .next build cache
-      - next_cache:/app/.next
+      # Host port 6000 → container port 3000.
+      # 0.0.0.0 binding — publicly reachable on this server.
+      # Caddy proxies cavok.oscarmairey.com → 127.0.0.1:6000.
+      - "0.0.0.0:6000:3000"
+    # No volumes mounted for the web service — the image is fully self-
+    # contained. Source changes require `docker compose up -d --build`.
 
 volumes:
   postgres_data:
     name: cavok_postgres_data
-  node_modules:
-    name: cavok_node_modules
-  next_cache:
-    name: cavok_next_cache

@@ -38,7 +38,12 @@ For full product scope, user flows, and feature details, see [PRD.md](./PRD.md).
 - **Next.js 16** has breaking changes vs Next 14/15. Read `node_modules/next/dist/docs/01-app/` before using anything you're unsure about. `AGENTS.md` at the project root has a reminder.
 - **Tailwind 4** uses CSS-first config (`@import "tailwindcss"` + `@theme inline { ... }` in `src/app/globals.css`). There is no `tailwind.config.js`.
 - **Prisma 7** requires either a driver adapter or `accelerateUrl` on `new PrismaClient()`. We use `PrismaPg` from `@prisma/adapter-pg`. Generated client lives at `src/generated/prisma/` (NOT `node_modules/.prisma/client`). Import the client from `@/generated/prisma/client` and enums from `@/generated/prisma/enums`. Configuration is in `prisma.config.ts`, NOT in the schema's `datasource` block.
-- **Auth.js v5** API differs from NextAuth v4. `auth()` from `@/auth` is the canonical way to read sessions in server components. The middleware uses the `auth()` higher-order wrapper. Augment `next-auth` and `next-auth/jwt` modules via `declare module` for typed sessions.
+- **Auth.js v5** API differs from NextAuth v4. `auth()` from `@/auth` is the canonical way to read sessions in **server components and route handlers**. Augment `next-auth` and `next-auth/jwt` modules via `declare module` for typed sessions. The `next-auth/jwt` augmentation only works if you explicitly import a type from it (e.g. `import type { JWT } from "next-auth/jwt"`) in the same file.
+- **Auth must be split into two files** because of the edge runtime:
+  - `src/auth.config.ts` — edge-safe, NO Prisma/bcrypt imports. Holds session strategy, pages, and JWT/session callbacks. Imported by `src/proxy.ts`.
+  - `src/auth.ts` — Node runtime, imports Prisma + bcrypt. Spreads `authConfig` and adds the Credentials provider whose `authorize()` queries the database.
+  - **Rule of thumb:** if a file is imported (transitively) by `proxy.ts`, it cannot touch the Prisma client, the `pg` adapter, `bcryptjs`, or anything that pulls in `node:path`/`node:fs`. The error you'll see is `Native module not found: node:path` at request time.
+- **`proxy.ts`, not `middleware.ts`** — Next.js 16 renamed the file convention. The semantics are the same; the warning if you use `middleware.ts` says `The "middleware" file convention is deprecated. Please use "proxy" instead.` There's a codemod: `npx @next/codemod@canary middleware-to-proxy .`
 
 ---
 
@@ -84,13 +89,16 @@ If any step fails, roll back the entire transaction. Never half-book.
 - Store the Stripe session ID on the resulting Transaction's `reference` field.
 - Before crediting, check whether a Transaction already exists with that session ID — if so, no-op and return 200. Stripe retries webhooks; double-crediting is unacceptable.
 
-### 6. Photos go directly browser → R2
+### 6. Photos: R2 bucket is FULLY PRIVATE — presigned URLs for both reads and writes
 
-- The app server **never** transits photo bytes.
-- Flow: client requests `/api/upload/presign` → server generates presigned PUT URL (15 min expiry, scoped per flight) → browser PUTs to R2 → client submits flight with R2 object keys.
-- Flight record stores `photos: text[]` (array of R2 object keys, not URLs).
+- The app server **never** transits photo bytes — neither on upload nor on read.
+- **Bucket has no public access path.** No custom domain, no `r2.dev` URL, no `R2_PUBLIC_BASE_URL`. Anyone hitting `https://...r2.cloudflarestorage.com/cavok-flight-photos/<key>` without a valid signature gets 403. This is non-negotiable: logbook photos contain license numbers, signatures, and identifying flight data.
+- **Write flow:** client requests `/api/upload/presign` → server checks the user owns the flight → server generates presigned PUT URL (15 min expiry, scoped per object key) → browser PUTs to R2 → client submits flight with R2 object keys.
+- **Read flow:** when rendering a flight that has photos, the server (not the client) generates presigned GET URLs (15 min expiry) and passes them to the page. The user is authorized server-side first (pilot owns the flight, OR user is admin). Never return photo URLs in any API endpoint that doesn't first authorize the caller.
+- Flight record stores `photos: text[]` (array of R2 object keys, e.g. `flights/{flight_id}/photo_1.jpg` — never URLs).
 - HEIC must be converted to JPEG on upload (client-side).
 - Limits: max 5 photos per flight, max 10 MB per photo.
+- Bucket: `cavok-flight-photos`, region WEUR. S3 endpoint is `R2_ENDPOINT` in `.env`; access keys are scoped to that single bucket (read+write only).
 
 ### 7. Cancellation rules
 
@@ -190,10 +198,21 @@ Before merging any code that touches HDV, reservations, or flights, verify:
 
 ## Dev Workflow
 
+### Port allocation (this server, not arbitrary)
+
+This VPS already runs other apps under the same Caddy. Cavok deliberately uses non-default ports to stay clear of them:
+
+| Service        | Host port  | Container port | Binding     | Why                                                          |
+|----------------|------------|----------------|-------------|--------------------------------------------------------------|
+| `cavok-web`    | **6000**   | 3000           | `0.0.0.0`   | `library.oscarmairey.com` already proxies to `localhost:3000`|
+| `cavok-db`     | **5442**   | 5432           | `127.0.0.1` | `library-db-1` already binds `127.0.0.1:5433`                |
+
+If you change these, also update `.env` (`DATABASE_URL`) and the Caddyfile entry for `cavok.oscarmairey.com`.
+
 ### Local development (Postgres in Docker, Next.js on host)
 
 ```bash
-docker compose up -d db          # start Postgres only (bound to 127.0.0.1:5432)
+docker compose up -d db          # start Postgres (bound to 127.0.0.1:5442)
 pnpm install                     # one-time
 pnpm db:migrate                  # apply migrations
 pnpm db:seed                     # create the bootstrap admin
@@ -203,10 +222,12 @@ pnpm dev                         # Next.js on http://localhost:3000
 ### Full Docker (Postgres + Next.js both in containers)
 
 ```bash
-docker compose up                # builds web image on first run, then runs both
-                                 # web bound to 0.0.0.0:3000 (externally reachable)
-                                 # db bound to 127.0.0.1:5432 (host-only)
+docker compose up -d             # builds web image on first run, runs both
+                                 # web → 0.0.0.0:6000, db → 127.0.0.1:5442
+docker compose logs -f web       # tail Next.js logs
 ```
+
+Public URL via Caddy + Cloudflare: **https://cavok.oscarmairey.com**
 
 ### Common Prisma scripts
 
@@ -224,15 +245,43 @@ docker compose up                # builds web image on first run, then runs both
 
 ---
 
+## Production access (this server)
+
+- **Public URL:** https://cavok.oscarmairey.com
+- **Server IP:** 89.167.7.195 (Hetzner)
+- **DNS:** Cloudflare proxied A record `cavok` in zone `oscarmairey.com` → server IP. Proxied (orange cloud) is **required** because Caddy uses a Cloudflare Origin CA wildcard cert (`*.oscarmairey.com`) that browsers only trust when traffic comes via Cloudflare's edge.
+- **TLS at the origin:** `/etc/caddy/certs/rss.oscarmairey.com.{pem,key}` — wildcard cert covering `oscarmairey.com` + `*.oscarmairey.com`. Used by all sites on this server.
+- **Caddy block** (in `/etc/caddy/Caddyfile`, applied with `sudo systemctl reload caddy`):
+
+  ```
+  cavok.oscarmairey.com {
+      tls /etc/caddy/certs/rss.oscarmairey.com.pem /etc/caddy/certs/rss.oscarmairey.com.key
+      reverse_proxy localhost:6000
+  }
+  ```
+
+- **Other apps on this same VPS** (different ports, same Caddy):
+  - `library.oscarmairey.com` → `localhost:3000` (uses Postgres on `127.0.0.1:5433`)
+  - `oscarmairey.com` → `localhost:3100`
+  - `miniflux.oscarmairey.com` → `localhost:8080`
+  - `rss.oscarmairey.com` → `localhost:1200`
+  - `www.oscarmairey.com` → 301 to apex
+- **Cloudflare account:** ID `7004afe5481e5474f5d12a6fd180a84f`. The DNS+R2 management token has prefix `cfat_`. Verify it via `GET /accounts/{account_id}/tokens/verify` (the **account-scoped** verify endpoint, not `/user/tokens/verify`).
+- **R2:** bucket `cavok-flight-photos` in WEUR, fully private (no custom domain, no public r2.dev URL). See architectural rule #6.
+
+---
+
 ## Project Status
 
 **Foundation laid as of April 2026.** Working scaffold includes:
 
-- Next.js 16 + React 19 + Tailwind 4 + TypeScript
+- Next.js 16 + React 19 + Tailwind 4 + TypeScript, running in Docker behind Caddy at https://cavok.oscarmairey.com
 - Prisma 7 schema covering all V1 entities (User, Reservation, Flight, Transaction, AvailabilityBlock) — first migration applied
-- Auth.js v5 Credentials provider + JWT sessions + route protection middleware
-- Placeholder pages: `/login`, `/dashboard`, `/setup-password`
-- Docker Compose: Postgres (host-only) + Next.js dev (externally exposed)
-- Bootstrap admin seeded
+- Auth.js v5 Credentials provider + JWT sessions + route protection via `proxy.ts` (split into `auth.config.ts` edge-safe / `auth.ts` Node)
+- Placeholder pages: `/login` (working sign-in form), `/dashboard`, `/setup-password`
+- Docker Compose: Postgres on `127.0.0.1:5442` + Next.js on `0.0.0.0:6000`
+- Bootstrap admin seeded (`o@mairey.net`)
+- Cloudflare R2 bucket `cavok-flight-photos` (private), S3 access keys in `.env`
+- GitHub repo: `oscarmairey/cavok` (private)
 
-**What's NOT built yet:** every feature page beyond the placeholders, Stripe Checkout/webhook, R2 upload presigning, calendar/booking UI, flight entry, admin panels, pilot CRUD. See PRD §3 for the spec and the suggested implementation order.
+**What's NOT built yet:** every feature page beyond the placeholders, Stripe Checkout/webhook, R2 upload/download presigning, calendar/booking UI, flight entry, admin panels, pilot CRUD. See PRD §3 for the spec and the suggested implementation order.

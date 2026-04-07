@@ -1,49 +1,21 @@
-// CAVOK Glass Cockpit — Auth.js v5 configuration
+// CAVOK Glass Cockpit — Auth.js v5 full configuration (Node runtime)
 //
-// Closed user group: only the admin can create accounts. No registration
-// endpoint exists. New pilots get a temp password from the admin and reset
-// it on first login (User.mustResetPw flag).
-//
-// Strategy: JWT sessions (no database session table). The User table is
-// queried at sign-in time and the relevant fields are baked into the JWT
-// for the lifetime of the session.
+// This file uses the Prisma client and bcryptjs, both of which need Node.js
+// APIs. It must NOT be imported from `proxy.ts` (which runs on the edge
+// runtime). Edge code uses `@/auth.config` instead.
 
-import NextAuth, { type DefaultSession, type NextAuthConfig } from "next-auth";
-import type { JWT } from "next-auth/jwt";
+import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
 import { prisma } from "@/lib/db";
-import type { Role } from "@/generated/prisma/enums";
+import { authConfig } from "@/auth.config";
 
-// Augment the session type so `session.user.role` and friends are typed.
-declare module "next-auth" {
-  interface Session {
-    user: {
-      id: string;
-      role: Role;
-      mustResetPw: boolean;
-    } & DefaultSession["user"];
-  }
-
-  interface User {
-    role: Role;
-    mustResetPw: boolean;
-  }
-}
-
-declare module "next-auth/jwt" {
-  interface JWT {
-    id: string;
-    role: Role;
-    mustResetPw: boolean;
-  }
-}
-
-const config: NextAuthConfig = {
-  session: { strategy: "jwt" },
-  pages: {
-    signIn: "/login",
-  },
+// `unstable_update` is the Auth.js v5 way to refresh the JWT/session payload
+// from a server action without forcing a sign-out + sign-in. We use it on
+// /setup-password so the next request lands on /dashboard instead of being
+// bounced back by the proxy's mustResetPw redirect.
+export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
+  ...authConfig,
   providers: [
     Credentials({
       name: "credentials",
@@ -88,33 +60,4 @@ const config: NextAuthConfig = {
       },
     }),
   ],
-  callbacks: {
-    async jwt({ token, user, trigger, session }): Promise<JWT> {
-      if (user) {
-        token.id = user.id as string;
-        token.role = (user as { role: Role }).role;
-        token.mustResetPw = (user as { mustResetPw: boolean }).mustResetPw;
-      }
-      // When the client calls update(), refresh the mustResetPw flag from the
-      // payload (used right after the first-login password reset).
-      if (
-        trigger === "update" &&
-        session &&
-        typeof (session as { mustResetPw?: unknown }).mustResetPw === "boolean"
-      ) {
-        token.mustResetPw = (session as { mustResetPw: boolean }).mustResetPw;
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (token && session.user) {
-        session.user.id = token.id;
-        session.user.role = token.role;
-        session.user.mustResetPw = token.mustResetPw;
-      }
-      return session;
-    },
-  },
-};
-
-export const { handlers, auth, signIn, signOut } = NextAuth(config);
+});
