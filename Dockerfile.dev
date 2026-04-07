@@ -1,0 +1,29 @@
+# ════════════════════════════════════════════════════════════
+# CAVOK — development image for Next.js
+# Production image will be a separate multi-stage Dockerfile.
+# ════════════════════════════════════════════════════════════
+FROM node:20-alpine
+
+# Install pnpm via corepack (built into Node 20+)
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+
+# Tools needed by Prisma engines on Alpine
+RUN apk add --no-cache openssl libc6-compat
+
+WORKDIR /app
+
+# Copy lockfile + manifest first for better layer caching
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
+COPY prisma ./prisma
+
+# Install all dependencies (incl. dev) — needed for `next dev`
+RUN pnpm install --frozen-lockfile
+
+# The actual source is bind-mounted at runtime via docker-compose,
+# so we don't COPY the rest of the project here. This makes hot reload work.
+
+EXPOSE 3000
+
+# -H 0.0.0.0 binds Next.js to all interfaces inside the container so the
+# host port mapping (3000:3000) can reach it.
+CMD ["pnpm", "dev", "-H", "0.0.0.0"]

@@ -1,0 +1,75 @@
+# ════════════════════════════════════════════════════════════
+# CAVOK Glass Cockpit — local development stack
+# ════════════════════════════════════════════════════════════
+# - db:  Postgres 16, bound to 127.0.0.1 ONLY (no external exposure)
+# - web: Next.js dev server, bound to 0.0.0.0:3000 (externally accessible)
+#
+# Usage:
+#   docker compose up        # start everything
+#   docker compose up db     # only the database
+#   docker compose down      # stop
+#   docker compose logs -f web
+# ════════════════════════════════════════════════════════════
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: cavok-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cavok}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cavok_local_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-cavok}
+      TZ: Europe/Paris
+      PGTZ: Europe/Paris
+    ports:
+      # 127.0.0.1 binding — DB is reachable only from the host machine,
+      # never from the network. The `web` service connects via the docker
+      # bridge network using hostname `db` instead.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cavok} -d ${POSTGRES_DB:-cavok}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: cavok-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Override DATABASE_URL to use the in-network db hostname
+      DATABASE_URL: ${DATABASE_URL_INTERNAL}
+      NODE_ENV: development
+      TZ: Europe/Paris
+    env_file:
+      - .env
+    ports:
+      # Host port 3001 → container port 3000.
+      # We don't use 3000 on the host because library.oscarmairey.com
+      # is already proxied to localhost:3000 in /etc/caddy/Caddyfile.
+      # 127.0.0.1 binding — Caddy on the host proxies cavok.oscarmairey.com → 3001.
+      - "127.0.0.1:3001:3000"
+    volumes:
+      # Bind-mount the project for hot reload
+      - .:/app
+      # Use a named volume for node_modules so the container's install
+      # isn't shadowed by the host's (and so cross-OS native modules work)
+      - node_modules:/app/node_modules
+      # Same idea for .next build cache
+      - next_cache:/app/.next
+
+volumes:
+  postgres_data:
+    name: cavok_postgres_data
+  node_modules:
+    name: cavok_node_modules
+  next_cache:
+    name: cavok_next_cache

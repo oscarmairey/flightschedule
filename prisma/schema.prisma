@@ -1,0 +1,219 @@
+// CAVOK Glass Cockpit — Prisma schema
+// All durations stored as Int (minutes). Display as HH:MM only.
+// Transaction table is the source of truth for HDV.
+// User.hdvBalanceMin is denormalized for read performance.
+// Every HDV mutation MUST insert a Transaction in the same DB transaction.
+//
+// Reference: PRD.md §4 and CLAUDE.md architectural rules.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ──────────────────────────────────────────────────
+
+enum Role {
+  PILOT
+  ADMIN
+}
+
+enum ReservationStatus {
+  CONFIRMED
+  CANCELLED_BY_PILOT
+  CANCELLED_BY_ADMIN
+}
+
+enum FlightStatus {
+  PENDING
+  VALIDATED
+  REJECTED
+}
+
+enum TransactionType {
+  PACKAGE_PURCHASE
+  RESERVATION_DEBIT
+  CANCELLATION_REFUND
+  FLIGHT_RECONCILIATION
+  ADMIN_ADJUSTMENT
+}
+
+enum AvailabilityType {
+  AVAILABLE
+  UNAVAILABLE
+}
+
+// ─── Models ─────────────────────────────────────────────────
+
+model User {
+  id             String   @id @default(uuid()) @db.Uuid
+  email          String   @unique
+  name           String
+  passwordHash   String
+  role           Role     @default(PILOT)
+  // Denormalized balance — must equal SUM(transactions.amountMin) for this user.
+  // NEVER update without inserting a Transaction in the same DB transaction.
+  hdvBalanceMin  Int      @default(0)
+  isActive       Boolean  @default(true)
+  mustResetPw    Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lastLoginAt    DateTime?
+
+  // Relations
+  reservations              Reservation[]            @relation("UserReservations")
+  cancelledReservations     Reservation[]            @relation("ReservationCancelledBy")
+  flights                   Flight[]
+  transactions              Transaction[]            @relation("UserTransactions")
+  performedTransactions     Transaction[]            @relation("TransactionPerformedBy")
+  createdAvailabilityBlocks AvailabilityBlock[]
+
+  @@index([email])
+  @@index([isActive])
+}
+
+model Reservation {
+  id              String            @id @default(uuid()) @db.Uuid
+  userId          String            @db.Uuid
+  user            User              @relation("UserReservations", fields: [userId], references: [id])
+
+  // Use full DateTime for precise conflict detection and ordering.
+  // Both stored as UTC; display layer converts to Europe/Paris.
+  startsAt        DateTime
+  endsAt          DateTime
+
+  // Snapshot at booking time. durationMin = (endsAt - startsAt) in minutes.
+  // hdvDeductedMin is what was actually subtracted from the user's balance —
+  // stored separately so refunds always restore the exact original amount,
+  // even if the underlying calculation logic ever changes.
+  durationMin     Int
+  hdvDeductedMin  Int
+
+  status          ReservationStatus @default(CONFIRMED)
+  cancelledAt     DateTime?
+  cancelledById   String?           @db.Uuid
+  cancelledBy     User?             @relation("ReservationCancelledBy", fields: [cancelledById], references: [id])
+
+  // 1:1 with Flight (a flight may not yet exist for a confirmed reservation).
+  flight          Flight?
+
+  transactions    Transaction[]
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([startsAt])
+  @@index([status, startsAt])
+}
+
+model Flight {
+  id                       String       @id @default(uuid()) @db.Uuid
+  userId                   String       @db.Uuid
+  user                     User         @relation(fields: [userId], references: [id])
+
+  // Every flight MUST reference a reservation (PRD §3.3 — 1:1 mandatory).
+  reservationId            String       @unique @db.Uuid
+  reservation              Reservation  @relation(fields: [reservationId], references: [id])
+
+  date                     DateTime     @db.Date
+  depAirport               String       // ICAO, e.g. "LFPN"
+  arrAirport               String       // ICAO
+
+  // Both in minutes. Reconciliation delta = reservedDuration - actualDuration
+  // and is recorded as a Transaction (signed) when non-zero.
+  actualDurationMin        Int
+  reservedDurationMin      Int
+  reconciliationDeltaMin   Int          @default(0)
+
+  // Engine times stored as "HH:MM" strings (optional, no timezone math needed).
+  engineStart              String?      @db.VarChar(5)
+  engineStop               String?      @db.VarChar(5)
+
+  landings                 Int          @default(1)
+  remarks                  String?
+
+  // Cloudflare R2 object keys, e.g. ["flights/{id}/photo_1.jpg", ...]
+  // The app server NEVER transits photo bytes — uploads go browser → R2 directly.
+  photos                   String[]
+
+  status                   FlightStatus @default(PENDING)
+  adminNotes               String?
+  validatedAt              DateTime?
+  rejectedAt               DateTime?
+
+  transactions             Transaction[]
+
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+
+  @@index([userId])
+  @@index([status, createdAt])
+  @@index([date])
+}
+
+model Transaction {
+  id              String          @id @default(uuid()) @db.Uuid
+  userId          String          @db.Uuid
+  user            User            @relation("UserTransactions", fields: [userId], references: [id])
+
+  type            TransactionType
+  // Signed: positive = credit, negative = debit. Always in minutes.
+  amountMin       Int
+  // Snapshot of user.hdvBalanceMin AFTER this transaction was applied.
+  // Enables point-in-time reconstruction without replaying full history.
+  balanceAfterMin Int
+
+  // External reference — Stripe session ID, admin reason text, etc.
+  // Used for idempotency on PACKAGE_PURCHASE (check before crediting).
+  reference       String?
+
+  // Optional links to the entity that caused this transaction.
+  flightId        String?         @db.Uuid
+  flight          Flight?         @relation(fields: [flightId], references: [id])
+  reservationId   String?         @db.Uuid
+  reservation     Reservation?    @relation(fields: [reservationId], references: [id])
+
+  // Who triggered the transaction — self for self-service actions,
+  // admin user id for admin-initiated changes.
+  performedById   String          @db.Uuid
+  performedBy     User            @relation("TransactionPerformedBy", fields: [performedById], references: [id])
+
+  createdAt       DateTime        @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type])
+  @@index([reference]) // for Stripe session ID idempotency lookups
+}
+
+model AvailabilityBlock {
+  id            String           @id @default(uuid()) @db.Uuid
+
+  // Dual-key system per PRD §3.2.1:
+  //   - dayOfWeek (0-6) for recurring weekly defaults
+  //   - specificDate for one-off overrides (takes precedence)
+  // Exactly one of dayOfWeek / specificDate must be set; enforced in app code.
+  dayOfWeek     Int?             // 0 = Sunday … 6 = Saturday
+  specificDate  DateTime?        @db.Date
+
+  // Time-of-day stored as minutes since midnight (0–1440).
+  // Consistent with the "everything in minutes" rule.
+  startMinutes  Int
+  endMinutes    Int
+
+  type          AvailabilityType @default(AVAILABLE)
+  reason        String?
+
+  createdById   String           @db.Uuid
+  createdBy     User             @relation(fields: [createdById], references: [id])
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([dayOfWeek])
+  @@index([specificDate])
+}
