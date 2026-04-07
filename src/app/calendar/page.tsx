@@ -1,4 +1,4 @@
-// CAVOK — /calendar — pilot weekly calendar with booking.
+// FlySchedule — /calendar — pilot weekly calendar with booking.
 
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, CalendarRange } from "lucide-react";

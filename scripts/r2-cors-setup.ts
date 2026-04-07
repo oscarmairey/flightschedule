@@ -1,4 +1,4 @@
-// CAVOK — apply CORS policy to the cavok-flight-photos R2 bucket.
+// FlySchedule — apply CORS policy to the cavok-flight-photos R2 bucket.
 //
 // Why: photo upload from /flights/new uses presigned PUT URLs, so the
 // browser uploads directly browser → R2 (cross-origin). R2 buckets
@@ -28,7 +28,8 @@ if (!ACCOUNT_ID || !API_TOKEN || !BUCKET) {
 }
 
 const ALLOWED_ORIGINS = [
-  "https://cavok.oscarmairey.com",
+  "https://flyschedule.org",
+  "https://www.flyschedule.org",
   "http://localhost:6000",
   "http://localhost:3000",
 ];
@@ -49,7 +50,7 @@ const corsPolicy = {
 
 async function main() {
   const url = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/r2/buckets/${BUCKET}/cors`;
-  console.log(`CAVOK — applying CORS to R2 bucket "${BUCKET}"`);
+  console.log(`FlySchedule — applying CORS to R2 bucket "${BUCKET}"`);
   console.log("Allowed origins:");
   ALLOWED_ORIGINS.forEach((o) => console.log(`  - ${o}`));
   console.log("");

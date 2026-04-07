@@ -1,4 +1,4 @@
-// CAVOK — Label primitive.
+// FlySchedule — Label primitive.
 
 import type { LabelHTMLAttributes, ReactNode } from "react";
 

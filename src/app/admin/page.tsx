@@ -1,7 +1,8 @@
-// CAVOK — /admin — overview dashboard (PRD §3.5.5).
+// FlySchedule — /admin — overview dashboard (PRD §3.5.5).
 //
-// Four sections: pending flights count, low-balance pilots, recent
-// activity, recent payments.
+// Three sections: low-balance pilots, recent activity, recent payments.
+// (V1.1 removed the "pending flights" tile — flights no longer require
+// admin validation.)
 
 import Link from "next/link";
 import { Shield, ArrowRight, AlertTriangle } from "lucide-react";
@@ -22,9 +23,8 @@ import { AppShell } from "@/components/AppShell";
 export default async function AdminOverviewPage() {
   await requireAdmin();
 
-  const [pendingCount, lowBalance, recentActivity, recentPayments] =
+  const [lowBalance, recentActivity, recentPayments] =
     await Promise.all([
-      prisma.flight.count({ where: { status: "PENDING" } }),
       prisma.user.findMany({
         where: {
           isActive: true,
@@ -60,29 +60,12 @@ export default async function AdminOverviewPage() {
           </h1>
         </header>
 
-        {/* Top metrics row — flush, not boxed */}
+        {/* Top metric — pilots in low-balance state */}
         <section
-          aria-label="Indicateurs clés"
-          className="grid gap-8 border-y border-border-subtle py-7 sm:grid-cols-2"
+          aria-label="Indicateur clé"
+          className="border-y border-border-subtle py-7"
         >
-          <Link href="/admin/flights" className="group">
-            <p className="text-xs font-medium uppercase tracking-[0.12em] text-text-subtle">
-              Vols à valider
-            </p>
-            <div className="mt-2 flex items-baseline gap-3">
-              <span
-                className={`font-display tabular text-5xl font-semibold tracking-tight ${
-                  pendingCount > 0 ? "text-warning" : "text-text-strong"
-                }`}
-              >
-                {pendingCount}
-              </span>
-              <span className="text-sm font-medium text-brand opacity-0 transition-opacity group-hover:opacity-100">
-                Ouvrir la file →
-              </span>
-            </div>
-          </Link>
-          <Link href="/admin/pilots" className="group">
+          <Link href="/admin/pilots" className="group block">
             <p className="text-xs font-medium uppercase tracking-[0.12em] text-text-subtle">
               Pilotes en solde faible
             </p>
@@ -229,12 +212,6 @@ export default async function AdminOverviewPage() {
         </div>
 
         <div className="mt-12 flex flex-wrap gap-3">
-          <Link href="/admin/flights">
-            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition-colors hover:text-brand-hover">
-              File de validation <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </span>
-          </Link>
-          <span className="text-text-subtle">·</span>
           <Link href="/admin/pilots">
             <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition-colors hover:text-brand-hover">
               Pilotes <ArrowRight className="h-4 w-4" aria-hidden="true" />

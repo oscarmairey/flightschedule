@@ -1,8 +1,7 @@
-# CAVOK Glass Cockpit — Product Requirements Document (V1)
+# FlySchedule — Product Requirements Document (V1)
 
-**Project:** Digital management platform for the Cessna 182 F-GBQA
-**Codename:** Glass Cockpit
-**Domain:** cavok.ovh
+**Project:** FlySchedule — the app to easily manage the reservation schedule of your plane
+**Domain:** flyschedule.org
 **Version:** 1.0
 **Date:** April 2026
 **Status:** V1 Scope Locked
@@ -13,7 +12,7 @@
 
 ### 1.1 Context
 
-CAVOK is a small private aviation company operating a single Cessna 182 (F-GBQA) shared among a group of private pilots. Current operations rely on a fragmented patchwork:
+FlySchedule is built around a single Cessna 182 (F-GBQA) shared among a small group of private pilots. Current operations rely on a fragmented patchwork:
 
 - **Reservations:** Google Sheet with half-day blocks, updated biannually by the administrator
 - **Communication:** WhatsApp group
@@ -31,7 +30,7 @@ Replace this fragmented workflow with a **single centralized web application** w
 
 ### 1.3 Success Metrics
 
-- All active pilots use `cavok.ovh` as their sole tool for reservations and flight logging within **30 days of launch**
+- All active pilots use `flyschedule.org` as their sole tool for reservations and flight logging within **30 days of launch**
 - The administrator no longer re-enters data from photos
 - Pilot self-service reduces admin workload to validation only
 
@@ -58,7 +57,7 @@ See Section 9 for the explicit out-of-scope list. V1 prioritizes replacing curre
 
 ### 2.2 Administrator (Super-User)
 
-**Profile:** Person managing CAVOK operations (currently one individual).
+**Profile:** Person managing the operation (currently one individual).
 
 **Capabilities (in addition to pilot capabilities):**
 - Create / deactivate pilot accounts
@@ -217,26 +216,24 @@ After landing (and filling the regulatory paper logbook, which remains mandatory
 
 | Field                  | Required | Notes                                               |
 |------------------------|----------|-----------------------------------------------------|
-| Linked reservation     | Yes      | Selected from confirmed reservations (current pre-selected) |
+| Linked reservation     | Yes      | Selected from past confirmed reservations. The same reservation can hold multiple flights — count is shown in the dropdown. |
 | Date of flight         | Yes      | Pre-filled from reservation                         |
 | Departure airport      | Yes      | ICAO code (e.g., LFPN); common airports suggested   |
 | Arrival airport        | Yes      | ICAO code                                           |
-| Actual flight duration | Yes      | HH:MM — may differ from reserved duration           |
+| Actual flight duration | Yes      | HH:MM — purely informational, no HDV impact         |
 | Engine start time      | No       | HH:MM, for precision                                |
 | Engine stop time       | No       | HH:MM                                               |
 | Remarks                | No       | Free text                                           |
 | Number of landings     | Yes      | Integer, defaults to 1                              |
 | Post-flight photos     | Yes      | 1–5 images, JPEG/PNG/HEIC, max 10MB each           |
 
-#### 3.3.2 HDV Reconciliation
+After saving, the pilot lands back on `/flights/new` with the same reservation pre-selected and a success banner offering to add another flight on the same reservation (multi-leg trips) or to bail to `/flights`.
 
-Since HDV was deducted at reservation time, flight submission triggers reconciliation:
+#### 3.3.2 HDV Reconciliation — REMOVED IN V1.1 (decision D5)
 
-- `actual_duration == reserved_duration` → no balance change
-- `actual_duration < reserved_duration` → difference credited back
-- `actual_duration > reserved_duration` → difference debited
+There is **no reconciliation**. The reservation pre-debit at booking time is the entire HDV story for that slot. Whether the pilot flew less or more than the reserved duration is operationally irrelevant — the slot is the unit of consumption, not the actual flown time. Flights are immutable logbook records and have no HDV impact whatsoever. If a manual correction is ever needed (rare, off-platform reasons), the admin uses an `admin_adjustment` Transaction from `/admin/pilots/[id]`.
 
-A `flight_reconciliation` Transaction records any non-zero delta, referencing the flight.
+> **Decision D5 (April 2026):** The V1.0 model debited the reservation upfront, then reconciled per-flight. The operator decided this added complexity for no operational benefit — pilots want to know "how many slots have I used" not "how many minutes of engine time." The `simplify_drop_reconciliation` migration removed the `FlightStatus` enum, the `FLIGHT_RECONCILIATION` transaction type, and the `reservedDurationMin` / `reconciliationDeltaMin` / `status` / `validatedAt` columns from `Flight`. Historical FLIGHT_RECONCILIATION rows in the ledger were re-typed to `ADMIN_ADJUSTMENT` so balances reconstructed from history still tie out.
 
 #### 3.3.3 Photo Upload (Cloudflare R2)
 
@@ -246,15 +243,9 @@ A `flight_reconciliation` Transaction records any non-zero delta, referencing th
 - HEIC converted to JPEG on upload
 - Max 5 photos per flight
 
-#### 3.3.4 Admin Validation Queue
+#### 3.3.4 Admin Validation Queue — REMOVED IN V1.1 (decision D5)
 
-- Admin sees feed of `pending` flight entries across all pilots, **sorted by date (oldest first)**
-- Each entry shows: flight details, reconciliation delta, uploaded photos inline
-- Admin actions:
-  - **Validate:** locks the entry, flight becomes final
-  - **Reject:** reverts ALL HDV changes (original reservation debit + reconciliation), flags entry
-  - **Edit:** corrects duration before validation, triggers new reconciliation
-- Validated flights are **locked and immutable**
+There is no admin validation. Flights are saved as immutable logbook records the moment the pilot submits them. The `/admin/flights` route was deleted.
 
 #### 3.3.5 Flight Data Model
 
@@ -262,22 +253,16 @@ A `flight_reconciliation` Transaction records any non-zero delta, referencing th
 |---------------------------|------------|------------------------------------------------|
 | id                        | uuid       |                                                |
 | user_id                   | fk User    |                                                |
-| reservation_id            | fk         | Required — every flight ties to a reservation  |
+| reservation_id            | fk         | Required — every flight ties to a reservation. A reservation may hold any number of flights (V1.1, multi-leg) |
 | date                      | date       |                                                |
 | dep_airport               | text       | ICAO                                           |
 | arr_airport               | text       | ICAO                                           |
-| actual_duration_min       | int        |                                                |
-| reserved_duration_min     | int        | Snapshot at creation for reconciliation        |
-| reconciliation_delta_min  | int        | Signed (+ credit / - debit)                    |
+| actual_duration_min       | int        | Logbook only — no HDV impact                   |
 | engine_start              | time       | Nullable                                       |
 | engine_stop               | time       | Nullable                                       |
 | landings                  | int        | Default 1                                      |
 | remarks                   | text       | Nullable                                       |
 | photos                    | text[]     | Array of R2 object keys                        |
-| status                    | enum       | `pending` / `validated` / `rejected`           |
-| admin_notes               | text       | Reason for edit/rejection                      |
-| validated_at              | timestamp  | Nullable                                       |
-| rejected_at               | timestamp  | Nullable                                       |
 | created_at                | timestamp  |                                                |
 | updated_at                | timestamp  |                                                |
 
@@ -426,7 +411,7 @@ User ──┬─< Reservation ──1:1── Flight
 2. **Transaction table is the source of truth.** `User.hdv_balance_min` is denormalized for read performance but can always be reconstructed from Transactions.
 3. **`balance_after_min` snapshot on every transaction** enables point-in-time balance reconstruction without replaying full history.
 4. **Every HDV mutation creates a Transaction.** No raw UPDATEs on `hdv_balance_min`. Period.
-5. **Reservation ↔ Flight is 1:1.** Every flight references a reservation. The reservation holds the original deduction; the flight holds any reconciliation delta.
+5. **Reservation → Flights is 1:N (V1.1).** Every flight references a reservation; a reservation can hold any number of flights. The reservation pre-debit at booking time is the **sole** unit of HDV consumption — flights are immutable logbook records with no HDV impact, no reconciliation, no validation.
 6. **AvailabilityBlock dual-key:** `day_of_week` for recurring, `specific_date` for overrides. Overrides take precedence.
 7. **Photos via presigned URLs.** Browser uploads directly to R2. The app server never transits photo bytes.
 8. **Soft delete on users only.** All other entities preserve history; deactivation ≠ deletion.
@@ -444,7 +429,7 @@ User ──┬─< Reservation ──1:1── Flight
 | Auth         | NextAuth.js (Credentials)       | Simple email/password for closed group                   |
 | Payments     | Stripe Checkout + Webhooks      | Hosted checkout, no PCI burden, receipts handled         |
 | File Storage | Cloudflare R2                   | S3-compatible, no egress fees, presigned URLs            |
-| Hosting      | Hetzner VPS + Caddy             | Existing infra; Caddy auto-TLS on cavok.ovh              |
+| Hosting      | Hetzner VPS + Caddy             | Existing infra; Caddy fronts flyschedule.org             |
 | Email        | Resend                          | Password reset; future notifications                     |
 
 **No Redis, no message queue, no additional third-party APIs for V1.** Stripe and R2 are the only external services beyond hosting and email.
@@ -477,8 +462,7 @@ User ──┬─< Reservation ──1:1── Flight
 
 | Route                   | Purpose                                                |
 |-------------------------|--------------------------------------------------------|
-| `/admin`                | Overview (pending, low balances, activity, payments)   |
-| `/admin/flights`        | Validation queue with inline photos                    |
+| `/admin`                | Overview (low balances, activity, payments)            |
 | `/admin/pilots`         | Pilot list + management                                |
 | `/admin/pilots/[id]`    | Pilot detail + manual credit/debit                     |
 | `/admin/calendar`       | Calendar with availability management                  |
@@ -576,19 +560,11 @@ User ──┬─< Reservation ──1:1── Flight
 4. Client requests presigned URLs from `/api/upload/presign` for each photo
 5. Browser uploads photos directly to R2
 6. Client submits flight record with R2 keys
-7. Server:
-   - Creates Flight (`status = pending`)
-   - Computes `reconciliation_delta_min`
-   - If non-zero, creates `flight_reconciliation` Transaction, updates balance
-8. Flight enters admin validation queue
+7. Server inserts the Flight as an immutable logbook record (no HDV mutation, no validation step). The pilot is redirected back to `/flights/new` with the same reservation pre-selected — multi-leg trips can add another flight on the spot.
 
-### 8.5 Admin Validates a Flight
+### 8.5 Admin Validates a Flight — REMOVED IN V1.1
 
-1. Admin at `/admin/flights` sees pending queue (oldest first)
-2. Reviews details + inline photos
-3. **Validate path:** status → `validated`, locked
-4. **Edit path:** admin corrects `actual_duration_min` → new reconciliation Transaction → then validates
-5. **Reject path:** reverts both reservation debit + reconciliation (creates reversing Transactions), status → `rejected`, flagged
+There is no admin validation step. Flights are immutable on insert. If an HDV correction is ever needed, the admin uses an `admin_adjustment` Transaction from `/admin/pilots/[id]`.
 
 ### 8.6 Cancel a Reservation
 

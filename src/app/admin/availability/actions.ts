@@ -1,4 +1,4 @@
-// CAVOK — admin availability server actions.
+// FlySchedule — admin availability server actions.
 
 "use server";
 

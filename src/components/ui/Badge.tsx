@@ -1,4 +1,4 @@
-// CAVOK — Badge primitive.
+// FlySchedule — Badge primitive.
 //
 // Variants:
 //   - default: neutral pill

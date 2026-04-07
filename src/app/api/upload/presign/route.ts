@@ -1,4 +1,4 @@
-// CAVOK — R2 presign endpoint for flight photo uploads.
+// FlySchedule — R2 presign endpoint for flight photo uploads.
 //
 // LOAD-BEARING (rule #6):
 //   - Server is the SOLE source of object keys (`makePhotoKey`)

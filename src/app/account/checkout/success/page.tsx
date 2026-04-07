@@ -1,4 +1,4 @@
-// CAVOK — post-Stripe-Checkout success landing.
+// FlySchedule — post-Stripe-Checkout success landing.
 //
 // The Stripe webhook is async — it might not have arrived by the time
 // the user lands here. Show the current balance from the DB, and warn

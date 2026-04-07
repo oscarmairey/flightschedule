@@ -1,4 +1,4 @@
-// CAVOK — Resend email client.
+// FlySchedule — Resend email client.
 //
 // Used for:
 //   - Sending temp passwords to newly created pilots (Phase 2)
@@ -18,7 +18,8 @@
 import { Resend } from "resend";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "CAVOK <noreply@cavok.ovh>";
+const RESEND_FROM_EMAIL =
+  process.env.RESEND_FROM_EMAIL ?? "FlySchedule <noreply@notifications.flyschedule.org>";
 
 let _resend: Resend | null = null;
 
@@ -41,17 +42,17 @@ export async function sendTempPasswordEmail(
   name: string,
   tempPassword: string,
 ): Promise<EmailResult> {
-  const subject = "CAVOK – Bienvenue, voici vos identifiants";
+  const subject = "FlySchedule – Bienvenue, voici vos identifiants";
   const html = `
     <p>Bonjour ${escapeHtml(name)},</p>
-    <p>Un compte CAVOK vient d'être créé pour vous. Voici vos identifiants temporaires :</p>
+    <p>Un compte FlySchedule vient d'être créé pour vous. Voici vos identifiants temporaires :</p>
     <ul>
       <li><strong>Email :</strong> ${escapeHtml(to)}</li>
       <li><strong>Mot de passe temporaire :</strong> <code>${escapeHtml(tempPassword)}</code></li>
     </ul>
-    <p>Connectez-vous sur <a href="https://cavok.oscarmairey.com/login">cavok.oscarmairey.com</a>.
+    <p>Connectez-vous sur <a href="https://flyschedule.org/login">flyschedule.org</a>.
     Vous serez invité·e à définir votre propre mot de passe à la première connexion.</p>
-    <p>Bons vols,<br/>L'équipe CAVOK</p>
+    <p>Bons vols,<br/>L'équipe FlySchedule</p>
   `;
 
   return await sendInternal({ to, subject, html });
@@ -67,17 +68,17 @@ export async function sendPasswordResetEmail(
   name: string,
   tempPassword: string,
 ): Promise<EmailResult> {
-  const subject = "CAVOK – Réinitialisation de votre mot de passe";
+  const subject = "FlySchedule – Réinitialisation de votre mot de passe";
   const html = `
     <p>Bonjour ${escapeHtml(name)},</p>
-    <p>Votre mot de passe CAVOK a été réinitialisé par l'administrateur. Voici vos nouveaux identifiants temporaires :</p>
+    <p>Votre mot de passe FlySchedule a été réinitialisé par l'administrateur. Voici vos nouveaux identifiants temporaires :</p>
     <ul>
       <li><strong>Email :</strong> ${escapeHtml(to)}</li>
       <li><strong>Mot de passe temporaire :</strong> <code>${escapeHtml(tempPassword)}</code></li>
     </ul>
-    <p>Connectez-vous sur <a href="https://cavok.oscarmairey.com/login">cavok.oscarmairey.com</a>.
+    <p>Connectez-vous sur <a href="https://flyschedule.org/login">flyschedule.org</a>.
     Vous serez invité·e à choisir un nouveau mot de passe à la prochaine connexion.</p>
-    <p>Bons vols,<br/>L'équipe CAVOK</p>
+    <p>Bons vols,<br/>L'équipe FlySchedule</p>
   `;
 
   return await sendInternal({ to, subject, html });

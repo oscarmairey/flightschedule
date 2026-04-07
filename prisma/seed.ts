@@ -1,4 +1,4 @@
-// CAVOK Glass Cockpit — Prisma seed script
+// FlySchedule — Prisma seed script
 //
 // Idempotent: safe to run multiple times. Uses upsert so re-running won't
 // duplicate the bootstrap admin.

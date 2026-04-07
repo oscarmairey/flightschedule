@@ -1,4 +1,4 @@
-# CAVOK — exclude bulky / generated / sensitive paths from the Docker
+# FlySchedule — exclude bulky / generated / sensitive paths from the Docker
 # build context so `docker compose build` is fast and reproducible.
 #
 # The Dockerfile installs deps from package.json+pnpm-lock.yaml inside
@@ -7,6 +7,7 @@
 # the COPY.
 
 node_modules
+.pnpm-store
 .next
 .git
 .gitignore

@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════
-# CAVOK Glass Cockpit — production Docker image
+# FlySchedule — production Docker image
 #
 # Multi-stage build:
 #   1. deps    — pnpm install with frozen lockfile
@@ -32,10 +32,20 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY prisma ./prisma
 
+# The host package.json sets pnpm.supportedArchitectures to fetch BOTH
+# glibc and musl variants of next-swc/sharp/esbuild so the host's
+# `pnpm install` (Ubuntu, glibc) also pulls musl for the container.
+# Inside this Alpine stage we only ever need musl — keeping the override
+# would double the install size (~250 MB of duplicated next-swc alone)
+# and bloat every subsequent COPY between stages. Strip it before install.
+RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.pnpm)delete p.pnpm.supportedArchitectures;fs.writeFileSync('package.json',JSON.stringify(p,null,2));"
+
 # Install all deps (including dev) — needed for `next build`. Frozen
-# lockfile guarantees reproducibility. The pnpm.supportedArchitectures
-# in package.json ensures the musl variant of next-swc is fetched.
-RUN pnpm install --frozen-lockfile
+# lockfile guarantees reproducibility. The cache mount persists pnpm's
+# content-addressable store across builds so warm builds skip the
+# download/extract entirely.
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 
 
 # ─── Stage 2: builder ───────────────────────────────────────

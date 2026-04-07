@@ -1,4 +1,4 @@
-// CAVOK route protection — Next.js 16 `proxy.ts` convention
+// FlySchedule route protection — Next.js 16 `proxy.ts` convention
 // (formerly known as `middleware.ts`).
 //
 // Runs on the EDGE runtime: must NOT import the Prisma client or anything

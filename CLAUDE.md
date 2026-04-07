@@ -1,6 +1,6 @@
-# CAVOK Glass Cockpit
+# FlySchedule
 
-Digital management platform for the Cessna 182 F-GBQA, replacing a fragmented Google Sheet + WhatsApp + paper logbook + Excel workflow with a single web app at **cavok.ovh**.
+The app to easily manage the reservation schedule of your plane. Used by a small group of private pilots sharing a Cessna 182 (F-GBQA), replacing a fragmented Google Sheet + WhatsApp + paper logbook + Excel workflow with a single web app at **flyschedule.org**.
 
 For full product scope, user flows, and feature details, see [PRD.md](./PRD.md).
 
@@ -79,11 +79,12 @@ A booking is one DB transaction containing:
 
 If any step fails, roll back the entire transaction. Never half-book.
 
-### 4. Reservation ↔ Flight is 1:1 and mandatory
+### 4. Reservation → Flights is 1:N (V1.1)
 
 - Every flight references exactly one reservation via `reservation_id` (NOT NULL).
-- A reservation has at most one flight.
-- The reservation holds the original HDV deduction; the flight holds any reconciliation delta when actual ≠ reserved duration.
+- A reservation may hold **zero or more** flights — a pilot can log each leg of a multi-leg trip as a separate Flight (own photos, own route, own duration).
+- **The reservation is the sole unit of HDV consumption.** The pre-debit at booking time is the entire HDV story for that slot. Flights are immutable logbook records and have **no HDV impact whatsoever** — no reconciliation, no credit for unused time, no debit for overrun. Whatever the pilot actually flew is paperwork, not accounting.
+- This rule replaced the V1.0 1:1+reconciliation model in the `simplify_drop_reconciliation` migration. The `FlightStatus` enum and `FLIGHT_RECONCILIATION` transaction type were dropped at the same time. Historical FLIGHT_RECONCILIATION rows in the ledger were re-typed to `ADMIN_ADJUSTMENT` so balances reconstructed from the ledger still tie out.
 
 ### 5. Stripe webhook idempotency
 
@@ -100,7 +101,7 @@ If any step fails, roll back the entire transaction. Never half-book.
 - Flight record stores `photos: text[]` (array of R2 object keys, e.g. `flights/{flight_id}/photo_1.jpg` — never URLs).
 - **Server is the SOLE source of object keys.** Use `makePhotoKey(userId)` from `src/lib/r2.ts`. Flight submit re-validates each key with `isPhotoKeyOwnedBy()` and HEADs each one in R2 to confirm the upload landed.
 - HEIC: V1 accepts `image/heic` mime-type as-is. Modern iOS Safari typically serves JPEG from the camera roll, so client-side conversion is deferred until proven needed on a real iPhone.
-- **CORS is REQUIRED for the cross-origin browser → R2 PUT.** R2 buckets ship with no CORS policy by default. The policy must be set via the **Cloudflare REST API**, not the S3 `PutBucketCors` API — R2 access keys lack `s3:PutBucketCors` and return `AccessDenied`. Use `scripts/r2-cors-setup.ts` (idempotent, run once per bucket). Allowed origins are pinned to `https://cavok.oscarmairey.com` plus localhost variants.
+- **CORS is REQUIRED for the cross-origin browser → R2 PUT.** R2 buckets ship with no CORS policy by default. The policy must be set via the **Cloudflare REST API**, not the S3 `PutBucketCors` API — R2 access keys lack `s3:PutBucketCors` and return `AccessDenied`. Use `scripts/r2-cors-setup.ts` (idempotent, run once per bucket). Allowed origins are pinned to `https://flyschedule.org` (and `https://www.flyschedule.org`) plus localhost variants.
 - Limits: max 5 photos per flight, max 10 MB per photo.
 - Bucket: `cavok-flight-photos`, region WEUR. S3 endpoint is `R2_ENDPOINT` in `.env`; access keys are scoped to that single bucket (read+write only).
 
@@ -117,13 +118,13 @@ If any step fails, roll back the entire transaction. Never half-book.
 - A `type = unavailable` override blocks bookings even on a normally available day.
 - Pilots can ONLY book within `available` windows. Outside availability = uncreatable, not just hidden.
 
-### 9. Flight validation lifecycle
+### 9. Flights are immutable on insert (V1.1)
 
-- New flights start as `pending`.
-- Admin can: `validate` (locks the entry forever) **or** `edit` (corrects duration → reverses old reconciliation + applies new one in the same DB transaction → flight stays pending until explicitly validated).
-- **No `reject` action.** This is a deliberate deviation from PRD §3.3.4 (per operator decision D4): admins cannot reject pilot flight entries, only validate or edit. The `FlightStatus.REJECTED` enum value still exists in the schema as dead code awaiting a V1.1 cleanup migration. If you find yourself implementing a reject path, **stop and confirm with the operator first** — they will push back.
-- **Validated flights are immutable.** No edits, no reversals. If a validated flight is wrong, the admin must use a manual `admin_adjustment` Transaction with a clear reason from `/admin/pilots/[id]`.
-- **Cancellation belongs to reservations, not flights.** A pilot or admin can cancel a *reservation* (which refunds the HDV); they cannot cancel or reject a *flight*. Don't confuse the two surfaces.
+- A flight is inserted into the database the moment the pilot submits the form. There is no `pending` → `validated` lifecycle, no admin queue, no validation step, no edit path. The `FlightStatus` enum was dropped in the `simplify_drop_reconciliation` migration.
+- **No reconciliation, ever.** The flight has no `reservedDurationMin` or `reconciliationDeltaMin` columns anymore. It records `actualDurationMin` for the logbook only, with no link to the user's HDV balance.
+- If an HDV correction is genuinely needed (rare — usually only for off-platform events like a wire transfer or a paper-logbook discrepancy), the admin uses the existing `ADMIN_ADJUSTMENT` Transaction path on `/admin/pilots/[id]` with a clear reason. There is no other way to mutate `User.hdvBalanceMin` from a flight context.
+- **Cancellation belongs to reservations, not flights.** A pilot or admin can cancel a *reservation* (which refunds the HDV) up to 24 h before its start (admin: anytime). Once *any* flight has been logged against a reservation, the reservation is locked against cancellation — see rule #7. Flights themselves cannot be cancelled, edited, or deleted from the UI.
+- The `/admin/flights` route was deleted entirely in V1.1.
 
 ### 10. Soft delete users only
 
@@ -160,7 +161,7 @@ If any step fails, roll back the entire transaction. Never half-book.
 ## Routes Map
 
 Pilot: `/dashboard`, `/calendar`, `/flights/new`, `/flights`, `/account`, `/account/checkout/{success,cancel}`
-Admin: `/admin`, `/admin/flights`, `/admin/pilots`, `/admin/pilots/[id]`, `/admin/calendar`, `/admin/availability`
+Admin: `/admin`, `/admin/pilots`, `/admin/pilots/[id]`, `/admin/calendar`, `/admin/availability`
 API: `/api/webhooks/stripe`, `/api/upload/presign`
 Auth: `/login`, `/setup-password`
 
@@ -206,14 +207,16 @@ Before merging any code that touches HDV, reservations, or flights, verify:
 
 ### Port allocation (this server, not arbitrary)
 
-This VPS already runs other apps under the same Caddy. Cavok deliberately uses non-default ports to stay clear of them:
+This VPS already runs other apps under the same Caddy. FlySchedule deliberately uses non-default ports to stay clear of them:
 
 | Service        | Host port  | Container port | Binding     | Why                                                          |
 |----------------|------------|----------------|-------------|--------------------------------------------------------------|
 | `cavok-web`    | **6000**   | 3000           | `0.0.0.0`   | `library.oscarmairey.com` already proxies to `localhost:3000`|
 | `cavok-db`     | **5442**   | 5432           | `127.0.0.1` | `library-db-1` already binds `127.0.0.1:5433`                |
 
-If you change these, also update `.env` (`DATABASE_URL`) and the Caddyfile entry for `cavok.oscarmairey.com`.
+> The container names are still `cavok-*` because they identify a running deployment with a live Postgres volume (`cavok_postgres_data`). Renaming them is a separate, scheduled operation — see "Legacy `cavok-*` names" below.
+
+If you change these, also update `.env` (`DATABASE_URL`) and the Caddyfile entry for `flyschedule.org`.
 
 ### Docker is production-only — no `Dockerfile.dev`
 
@@ -239,7 +242,7 @@ pnpm db:seed                     # create the bootstrap admin
 pnpm dev                         # Next.js on http://localhost:3000
 ```
 
-Public URL via Caddy + Cloudflare: **https://cavok.oscarmairey.com**
+Public URL via Caddy + Cloudflare: **https://flyschedule.org**
 
 ### Common Prisma scripts
 
@@ -259,16 +262,21 @@ Public URL via Caddy + Cloudflare: **https://cavok.oscarmairey.com**
 
 ## Production access (this server)
 
-- **Public URL:** https://cavok.oscarmairey.com
+- **Public URL:** https://flyschedule.org
 - **Server IP:** 89.167.7.195 (Hetzner)
-- **DNS:** Cloudflare proxied A record `cavok` in zone `oscarmairey.com` → server IP. Proxied (orange cloud) is **required** because Caddy uses a Cloudflare Origin CA wildcard cert (`*.oscarmairey.com`) that browsers only trust when traffic comes via Cloudflare's edge.
-- **TLS at the origin:** `/etc/caddy/certs/rss.oscarmairey.com.{pem,key}` — wildcard cert covering `oscarmairey.com` + `*.oscarmairey.com`. Used by all sites on this server.
+- **DNS:** Cloudflare proxied records for `flyschedule.org` (apex + `www`) → server IP. Proxied (orange cloud) is **required** because Caddy serves a Cloudflare Origin CA cert at the origin that browsers only trust when traffic comes via Cloudflare's edge.
+- **TLS at the origin:** `/etc/caddy/certs/flyschedule.org.{pem,key}` — Cloudflare Origin CA cert covering `flyschedule.org` + `www.flyschedule.org`. Dedicated to this app (other apps on the same VPS use a separate `*.oscarmairey.com` cert).
 - **Caddy block** (in `/etc/caddy/Caddyfile`, applied with `sudo systemctl reload caddy`):
 
   ```
-  cavok.oscarmairey.com {
-      tls /etc/caddy/certs/rss.oscarmairey.com.pem /etc/caddy/certs/rss.oscarmairey.com.key
+  flyschedule.org {
+      tls /etc/caddy/certs/flyschedule.org.pem /etc/caddy/certs/flyschedule.org.key
       reverse_proxy localhost:6000
+  }
+
+  www.flyschedule.org {
+      tls /etc/caddy/certs/flyschedule.org.pem /etc/caddy/certs/flyschedule.org.key
+      redir https://flyschedule.org{uri} permanent
   }
   ```
 
@@ -279,7 +287,7 @@ Public URL via Caddy + Cloudflare: **https://cavok.oscarmairey.com**
   - `rss.oscarmairey.com` → `localhost:1200`
   - `www.oscarmairey.com` → 301 to apex
 - **Cloudflare account:** ID `7004afe5481e5474f5d12a6fd180a84f`. The DNS+R2 management token has prefix `cfat_`. Verify it via `GET /accounts/{account_id}/tokens/verify` (the **account-scoped** verify endpoint, not `/user/tokens/verify`).
-- **R2:** bucket `cavok-flight-photos` in WEUR, fully private (no custom domain, no public r2.dev URL). See architectural rule #6.
+- **R2:** bucket `cavok-flight-photos` in WEUR, fully private (no custom domain, no public r2.dev URL). See architectural rule #6. The bucket was created under the old project name and has not been renamed — see "Legacy `cavok-*` names" below.
 
 ---
 
@@ -287,16 +295,21 @@ Public URL via Caddy + Cloudflare: **https://cavok.oscarmairey.com**
 
 **Foundation laid as of April 2026.** Working scaffold includes:
 
-- Next.js 16 + React 19 + Tailwind 4 + TypeScript, running in Docker behind Caddy at https://cavok.oscarmairey.com
+- Next.js 16 + React 19 + Tailwind 4 + TypeScript, running in Docker behind Caddy at https://flyschedule.org
 - Prisma 7 schema covering all V1 entities (User, Reservation, Flight, Transaction, AvailabilityBlock) — first migration applied
 - Auth.js v5 Credentials provider + JWT sessions + route protection via `proxy.ts` (split into `auth.config.ts` edge-safe / `auth.ts` Node)
 - Placeholder pages: `/login` (working sign-in form), `/dashboard`, `/setup-password`
 - Docker Compose: Postgres on `127.0.0.1:5442` + Next.js on `0.0.0.0:6000`
 - Bootstrap admin seeded (`o@mairey.net`)
 - Cloudflare R2 bucket `cavok-flight-photos` (private), S3 access keys in `.env`
-- GitHub repo: `oscarmairey/cavok` (private)
+- GitHub repo: `oscarmairey/flyschedule` (private)
 
-**V1 fully built and deployed as of commit `4544dc8`.** Live behind Caddy at https://cavok.oscarmairey.com via the production multi-stage Docker image. All 21 routes registered; Stripe Checkout end-to-end (test mode) verified with a successful 5h credit; admin pilot CRUD, calendar + atomic booking, flight entry with R2 photo upload (CORS configured), admin validation queue, and admin overview all live.
+**V1 fully built and deployed as of commit `4544dc8`.** Live behind Caddy at https://flyschedule.org via the production multi-stage Docker image. All 21 routes registered; Stripe Checkout end-to-end (test mode) verified with a successful 5h credit; admin pilot CRUD, calendar + atomic booking, flight entry with R2 photo upload (CORS configured), admin validation queue, and admin overview all live.
+
+**V1.1 simplification (April 2026, decision D5)** — `simplify_drop_reconciliation` migration removed three things at once:
+1. **HDV reconciliation** — flights no longer credit/debit the user. The reservation pre-debit is the entire HDV story for a slot.
+2. **1:1 reservation↔flight constraint** — a reservation can now hold multiple flights (multi-leg trips, "+ ajouter un vol" UX on `/flights/new`).
+3. **Admin flight validation** — flights are immutable on insert. The `/admin/flights` route, the `validateFlight`/`editFlight` server actions, the `FlightStatus` enum, and the `FLIGHT_RECONCILIATION` transaction type were all dropped. Historical FLIGHT_RECONCILIATION rows in the ledger were re-typed to `ADMIN_ADJUSTMENT` so balances reconstructed from history still tie out to the minute.
 
 **One-shot setup scripts** (operator runs once per environment, all idempotent):
 - `corepack pnpm tsx scripts/stripe-setup.ts` — creates Products + Prices + webhook endpoint, prints env block to paste into `.env`
@@ -306,3 +319,21 @@ Public URL via Caddy + Cloudflare: **https://cavok.oscarmairey.com**
 **Operator preferences worth respecting** (these came up during V1 implementation):
 - When credentials are present in `.env`, USE them to do setup work autonomously. Don't punt to "the operator runs `stripe listen`" — the API works.
 - Docker = production build. Never propose dev mode in containers.
+
+---
+
+## Legacy `cavok-*` names
+
+The project was originally called CAVOK Glass Cockpit. It was rebranded to **FlySchedule** (the app to easily manage the reservation schedule of your plane) at the flyschedule.org cutover. The user-visible brand, repo, domain, and source code now all use the FlySchedule name. A few **infrastructure identifiers** still carry the old `cavok` prefix, deliberately, because renaming them is a stateful migration rather than a string-replace:
+
+| Identifier                          | Where                       | Why it stayed                                                                                  |
+|-------------------------------------|-----------------------------|------------------------------------------------------------------------------------------------|
+| Working directory `/opt/cavok`      | filesystem                  | The deploy path is referenced by the `cavok-web` container CWD, the cron job in `crontab`, the systemd-managed Caddy config, and operator muscle memory. Move = coordinated downtime. |
+| Container `cavok-web` / `cavok-db`  | `docker-compose.yml`        | Cosmetic in `docker ps`, but `docker compose` keys identity by service+container name. A rename = `down` + `up`, scheduled.                             |
+| Volume `cavok_postgres_data`        | `docker-compose.yml`        | **Holds the live database.** Renaming the key would orphan it and create a new empty volume; recovery requires `external: true` re-binding.            |
+| Postgres user/db `cavok` / `cavok`  | `.env`, `POSTGRES_*`        | The schema and grants live in this DB. A rename is a `pg_dump` + reload + `DATABASE_URL` rotate.                                                        |
+| R2 bucket `cavok-flight-photos`     | `.env`, `r2.ts`             | Holds existing flight photos. Renaming a bucket means recreating it and copying objects (R2 has no native rename) — and reissuing scoped access keys.   |
+| R2 bucket `cavok-db-backups`        | `scripts/backup-db.sh`      | Holds historical encrypted Postgres dumps. Same constraint as above.                                                                                    |
+| Image tag `cavok-web:latest`        | `docker-compose.yml`        | Local image name only — harmless. Will flip when the compose file is next touched.                                                                      |
+
+**Rule for the agent:** when working in this repo, treat the legacy `cavok-*` identifiers as opaque infrastructure handles, not branding. Do **not** propose mass renames as a cleanup pass — every one of them is a planned operation that needs operator coordination. If a future task explicitly schedules the cutover, the order is: stop traffic → `pg_dump` → recreate volume + DB under new names → restore → rotate `DATABASE_URL` → recreate R2 buckets + copy objects → rotate R2 keys → `docker compose down && up -d` with new container names → move `/opt/cavok` → update Caddy + cron → smoke test.

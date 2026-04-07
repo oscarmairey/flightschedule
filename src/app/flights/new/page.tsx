@@ -1,5 +1,10 @@
-// CAVOK — /flights/new — pilot flight entry form.
+// FlySchedule — /flights/new — pilot flight entry form.
+//
+// V1.1: a reservation can hold any number of flights. The pilot can come
+// back to this page and "ajouter un vol" against any past reservation,
+// even one that already has flights logged against it.
 
+import Link from "next/link";
 import { PencilLine } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
@@ -21,22 +26,24 @@ const TZ = "Europe/Paris";
 export default async function NewFlightPage({
   searchParams,
 }: {
-  searchParams: Promise<{ reservation?: string; error?: string }>;
+  searchParams: Promise<{ reservation?: string; error?: string; added?: string }>;
 }) {
   const session = await requireSession();
   const sp = await searchParams;
 
-  // Reservations the pilot can attach a flight to: own + confirmed + no
-  // existing flight + already started (at least 30 min ago to be safe).
+  // Reservations the pilot can attach a flight to: own + confirmed + already
+  // started. There is no "no existing flight" filter — a reservation can hold
+  // any number of flights (multi-leg trips). The dropdown surfaces the
+  // current count so the pilot knows they're adding to an existing slot.
   const candidates = await prisma.reservation.findMany({
     where: {
       userId: session.user.id,
       status: "CONFIRMED",
       startsAt: { lte: new Date() },
-      flight: null,
     },
     orderBy: { startsAt: "desc" },
     take: 20,
+    include: { _count: { select: { flights: true } } },
   });
 
   if (candidates.length === 0) {
@@ -48,12 +55,12 @@ export default async function NewFlightPage({
             {COPY.nav.newFlight}
           </p>
           <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
-            Aucune saisie en attente
+            Aucune réservation passée
           </h1>
           <Card tone="sunken" className="mt-8">
             <p className="text-sm leading-relaxed text-text-muted">
-              Pour saisir un vol, vous devez avoir une réservation passée
-              sans vol attaché. Réservez d&apos;abord un créneau, effectuez
+              Pour saisir un vol, vous devez avoir au moins une réservation
+              déjà commencée. Réservez d&apos;abord un créneau, effectuez
               votre vol, puis revenez ici.
             </p>
           </Card>
@@ -77,13 +84,13 @@ export default async function NewFlightPage({
             ? "Une photo n'a pas été trouvée sur le serveur. Réessayez."
             : sp.error === "bad_reservation"
               ? "Réservation invalide."
-              : sp.error === "already_logged"
-                ? "Un vol a déjà été enregistré pour cette réservation."
-                : sp.error === "bad_duration"
-                  ? "Durée invalide. Format attendu : 1h30 ou 90."
-                  : sp.error === "invalid"
-                    ? COPY.errors.invalidInput
-                    : null;
+              : sp.error === "bad_duration"
+                ? "Durée invalide. Format attendu : 1h30 ou 90."
+                : sp.error === "invalid"
+                  ? COPY.errors.invalidInput
+                  : null;
+
+  const justAdded = sp.added === "1";
 
   return (
     <AppShell>
@@ -109,6 +116,19 @@ export default async function NewFlightPage({
           </div>
         )}
 
+        {justAdded && !errorBanner && (
+          <div className="mb-6">
+            <Alert tone="success">
+              Vol enregistré. Vous pouvez en ajouter un autre sur la même
+              réservation, ou{" "}
+              <Link href="/flights" className="font-semibold underline">
+                voir vos vols
+              </Link>
+              .
+            </Alert>
+          </div>
+        )}
+
         <form action={submitFlight} className="space-y-6">
           <Card>
             <CardHeader>
@@ -123,24 +143,30 @@ export default async function NewFlightPage({
               required
               className="block w-full min-h-11 rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand focus:outline-none"
             >
-              {candidates.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {formatDateFR(r.startsAt)} ·{" "}
-                  {new Intl.DateTimeFormat("fr-FR", {
-                    timeZone: TZ,
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }).format(r.startsAt)}
-                  {" – "}
-                  {new Intl.DateTimeFormat("fr-FR", {
-                    timeZone: TZ,
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }).format(r.endsAt)}
-                  {" · "}
-                  {formatHHMM(r.durationMin)}
-                </option>
-              ))}
+              {candidates.map((r) => {
+                const existing = r._count.flights;
+                return (
+                  <option key={r.id} value={r.id}>
+                    {formatDateFR(r.startsAt)} ·{" "}
+                    {new Intl.DateTimeFormat("fr-FR", {
+                      timeZone: TZ,
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }).format(r.startsAt)}
+                    {" – "}
+                    {new Intl.DateTimeFormat("fr-FR", {
+                      timeZone: TZ,
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }).format(r.endsAt)}
+                    {" · "}
+                    {formatHHMM(r.durationMin)}
+                    {existing > 0
+                      ? ` · ${existing} vol${existing > 1 ? "s" : ""} déjà saisi${existing > 1 ? "s" : ""}`
+                      : ""}
+                  </option>
+                );
+              })}
             </select>
           </Card>
 

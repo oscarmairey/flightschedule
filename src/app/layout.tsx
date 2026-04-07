@@ -22,8 +22,9 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "CAVOK · Glass Cockpit",
-  description: "Plateforme de gestion du Cessna 182 F-GBQA",
+  title: "FlySchedule",
+  description:
+    "L'app pour gérer simplement le planning de réservation de votre avion.",
 };
 
 export default function RootLayout({

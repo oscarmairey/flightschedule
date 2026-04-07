@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════
-# CAVOK Glass Cockpit — local development stack
+# FlySchedule — local development stack
 # ════════════════════════════════════════════════════════════
 # - db:  Postgres 16, bound to 127.0.0.1 ONLY (no external exposure)
 # - web: Next.js dev server, bound to 0.0.0.0:3000 (externally accessible)
@@ -59,7 +59,7 @@ services:
     ports:
       # Host port 6000 → container port 3000.
       # 0.0.0.0 binding — publicly reachable on this server.
-      # Caddy proxies cavok.oscarmairey.com → 127.0.0.1:6000.
+      # Caddy proxies flyschedule.org → 127.0.0.1:6000.
       - "0.0.0.0:6000:3000"
     # No volumes mounted for the web service — the image is fully self-
     # contained. Source changes require `docker compose up -d --build`.

@@ -1,4 +1,4 @@
-// CAVOK — edge-safe Auth.js config
+// FlySchedule — edge-safe Auth.js config
 //
 // This file is imported by `proxy.ts` (formerly `middleware.ts`) which runs
 // on the edge runtime. The edge runtime does NOT support Node.js APIs like

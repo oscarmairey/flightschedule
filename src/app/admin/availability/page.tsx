@@ -1,4 +1,4 @@
-// CAVOK — /admin/availability — recurring + per-date availability.
+// FlySchedule — /admin/availability — recurring + per-date availability.
 
 import { CalendarClock, Trash2 } from "lucide-react";
 import { requireAdmin } from "@/lib/session";

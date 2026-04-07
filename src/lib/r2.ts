@@ -1,4 +1,4 @@
-// CAVOK — Cloudflare R2 client and presign helpers.
+// FlySchedule — Cloudflare R2 client and presign helpers.
 //
 // ARCHITECTURAL RULE #6 (load-bearing):
 //

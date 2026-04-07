@@ -1,4 +1,4 @@
-// CAVOK — French copy single source of truth.
+// FlySchedule — French copy single source of truth.
 //
 // V1 is French-only. Rather than pulling in an i18n library, we keep
 // every user-facing string in this typed object. Benefits:
@@ -13,12 +13,12 @@
 
 export const COPY = {
   brand: {
-    name: "CAVOK",
-    tagline: "Glass Cockpit – F-GBQA",
+    name: "FlySchedule",
+    tagline: "Le planning de votre avion, simplement.",
   },
 
   common: {
-    appName: "CAVOK",
+    appName: "FlySchedule",
     save: "Enregistrer",
     cancel: "Annuler",
     delete: "Supprimer",
@@ -41,7 +41,6 @@ export const COPY = {
     myFlights: "Mes vols",
     account: "Mon compte",
     admin: "Administration",
-    adminFlights: "Validation",
     adminPilots: "Pilotes",
     adminAvailability: "Disponibilités",
     adminCalendar: "Calendrier admin",
@@ -59,7 +58,7 @@ export const COPY = {
 
     setupTitle: "Définir votre mot de passe",
     setupIntro:
-      "Bienvenue sur CAVOK. Choisissez un mot de passe pour sécuriser votre compte.",
+      "Bienvenue sur FlySchedule. Choisissez un mot de passe pour sécuriser votre compte.",
     newPassword: "Nouveau mot de passe",
     confirmPassword: "Confirmer le mot de passe",
     setupSubmit: "Définir le mot de passe",
@@ -107,7 +106,6 @@ export const COPY = {
     PACKAGE_PURCHASE: "Achat HDV",
     RESERVATION_DEBIT: "Réservation",
     CANCELLATION_REFUND: "Remboursement",
-    FLIGHT_RECONCILIATION: "Réconciliation vol",
     ADMIN_ADJUSTMENT: "Ajustement administrateur",
   },
 

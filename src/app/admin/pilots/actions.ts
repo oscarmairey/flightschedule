@@ -1,4 +1,4 @@
-// CAVOK — admin pilot management server actions.
+// FlySchedule — admin pilot management server actions.
 //
 // Every action: requireAdmin() FIRST, Zod-validate input, wrap mutations
 // in prisma.$transaction when they touch HDV. The HDV chokepoint

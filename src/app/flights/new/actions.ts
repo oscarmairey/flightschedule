@@ -1,10 +1,11 @@
-// CAVOK — submit a flight entry.
+// FlySchedule — submit a flight entry.
 //
 // Architectural rules in play:
-//   #2 — applyHdvMutation chokepoint for any reconciliation
-//   #4 — Reservation ↔ Flight is 1:1 mandatory
+//   #4 — Reservation ↔ Flight is 1:N (one reservation can hold many flights)
 //   #6 — server validates each photo key belongs to current user
-//   #9 — flights start as PENDING; only admin can validate
+//   #9 — flights are immutable logbook records; no validation, no
+//        reconciliation, no HDV impact. The reservation already debited
+//        the slot at booking time and that is the entire HDV story.
 
 "use server";
 
@@ -13,7 +14,6 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { applyHdvMutation } from "@/lib/hdv";
 import { isPhotoKeyOwnedBy, headObject, PHOTO_LIMITS } from "@/lib/r2";
 import { parseHHMM } from "@/lib/duration";
 import { IcaoSchema, UuidSchema } from "@/lib/validation";
@@ -81,10 +81,12 @@ export async function submitFlight(formData: FormData) {
     redirect("/flights/new?error=photo_missing");
   }
 
-  // Validate the reservation belongs to the user, is confirmed, and has no flight
+  // Validate the reservation belongs to the user and is confirmed.
+  // Note: a reservation can hold any number of flights — no "already logged"
+  // check, this is the multi-leg flow.
   const reservation = await prisma.reservation.findUnique({
     where: { id: parsed.data.reservationId },
-    include: { flight: { select: { id: true } } },
+    select: { id: true, userId: true, status: true, startsAt: true },
   });
   if (
     !reservation ||
@@ -93,57 +95,32 @@ export async function submitFlight(formData: FormData) {
   ) {
     redirect("/flights/new?error=bad_reservation");
   }
-  if (reservation.flight) {
-    redirect("/flights/new?error=already_logged");
-  }
-
-  // Reconciliation: positive delta = credit (flew less than reserved),
-  // negative delta = debit (flew more than reserved).
-  const reconciliationDeltaMin = reservation.durationMin - actualDurationMin;
 
   // Use the reservation's UTC date for the Flight.date field (date-only).
   const flightDate = new Date(
     `${reservation.startsAt.toISOString().slice(0, 10)}T00:00:00.000Z`,
   );
 
-  await prisma.$transaction(async (tx) => {
-    const created = await tx.flight.create({
-      data: {
-        userId: session.user.id,
-        reservationId: reservation.id,
-        date: flightDate,
-        depAirport: parsed.data.depAirport,
-        arrAirport: parsed.data.arrAirport,
-        actualDurationMin,
-        reservedDurationMin: reservation.durationMin,
-        reconciliationDeltaMin,
-        engineStart: parsed.data.engineStart || null,
-        engineStop: parsed.data.engineStop || null,
-        landings: parsed.data.landings,
-        remarks: parsed.data.remarks || null,
-        photos: rawKeys,
-        status: "PENDING",
-      },
-      select: { id: true },
-    });
-
-    if (reconciliationDeltaMin !== 0) {
-      await applyHdvMutation(tx, {
-        userId: session.user.id,
-        type: "FLIGHT_RECONCILIATION",
-        amountMin: reconciliationDeltaMin,
-        flightId: created.id,
-        reservationId: reservation.id,
-        performedById: session.user.id,
-        // A reconciliation debit (overrun) can theoretically push the
-        // balance below zero — allow it; the admin will reconcile.
-        allowNegative: true,
-      });
-    }
+  // Plain insert — no transaction needed (no HDV mutation, single row).
+  await prisma.flight.create({
+    data: {
+      userId: session.user.id,
+      reservationId: reservation.id,
+      date: flightDate,
+      depAirport: parsed.data.depAirport,
+      arrAirport: parsed.data.arrAirport,
+      actualDurationMin,
+      engineStart: parsed.data.engineStart || null,
+      engineStop: parsed.data.engineStop || null,
+      landings: parsed.data.landings,
+      remarks: parsed.data.remarks || null,
+      photos: rawKeys,
+    },
   });
 
   revalidatePath("/flights");
   revalidatePath("/dashboard");
-  revalidatePath("/admin/flights");
-  redirect("/flights?submitted=1");
+  // Redirect back to /flights/new with the same reservation pre-selected
+  // and an `added=1` flag so the page can show "ajouter un autre" UX.
+  redirect(`/flights/new?reservation=${reservation.id}&added=1`);
 }

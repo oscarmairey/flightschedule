@@ -1,4 +1,4 @@
-// CAVOK — Stripe Checkout cancel landing.
+// FlySchedule — Stripe Checkout cancel landing.
 
 import Link from "next/link";
 import { XCircle, ArrowLeft } from "lucide-react";

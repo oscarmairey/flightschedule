@@ -1,4 +1,4 @@
-// CAVOK — Dialog primitive built on the native <dialog> element.
+// FlySchedule — Dialog primitive built on the native <dialog> element.
 //
 // Why native: zero JS deps, accessible by default (focus trap, escape
 // to close, backdrop click via the ::backdrop pseudo-element). Fits

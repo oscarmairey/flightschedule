@@ -47,38 +47,16 @@ export default async function LoginPage({
             priority
           />
           <h1 className="font-display mt-8 text-5xl font-semibold tracking-tight text-text-strong sm:text-6xl">
-            CAVOK
+            FlySchedule
           </h1>
-          <p className="mt-3 text-sm font-medium uppercase tracking-[0.22em] text-text-muted">
-            Glass Cockpit · F-GBQA
+          <p className="mt-3 max-w-md text-sm font-medium uppercase tracking-[0.22em] text-text-muted">
+            Le planning de votre avion, simplement.
           </p>
           <p className="mt-6 max-w-md text-base leading-relaxed text-text-muted">
-            Le cockpit numérique du Cessna&nbsp;182&nbsp;
-            <span className="tabular text-text-strong">F-GBQA</span>.
-            Réservations, heures de vol, carnet de bord — tout en un endroit,
-            partout, depuis votre poche.
+            L&apos;app pour gérer simplement le planning de réservation de votre
+            avion. Réservations, heures de vol, carnet de bord — tout en un
+            endroit, partout, depuis votre poche.
           </p>
-
-          <dl className="mt-10 grid max-w-md grid-cols-3 gap-6 border-t border-border-subtle pt-6 text-sm">
-            <div>
-              <dt className="text-text-subtle">Code météo</dt>
-              <dd className="mt-1 font-display text-lg font-semibold text-text-strong">
-                CAVOK
-              </dd>
-            </div>
-            <div>
-              <dt className="text-text-subtle">Plafond</dt>
-              <dd className="mt-1 font-display text-lg font-semibold text-text-strong">
-                ≥ 5 000 ft
-              </dd>
-            </div>
-            <div>
-              <dt className="text-text-subtle">Visibilité</dt>
-              <dd className="mt-1 font-display text-lg font-semibold text-text-strong">
-                ≥ 10 km
-              </dd>
-            </div>
-          </dl>
         </section>
 
         {/* Right: sign-in form */}

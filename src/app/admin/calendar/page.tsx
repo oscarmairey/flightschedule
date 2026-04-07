@@ -1,4 +1,4 @@
-// CAVOK — /admin/calendar — admin calendar with cancel-anytime affordance.
+// FlySchedule — /admin/calendar — admin calendar with cancel-anytime affordance.
 
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, CalendarRange } from "lucide-react";

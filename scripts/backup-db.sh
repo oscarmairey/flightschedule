@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CAVOK — daily Postgres backup → encrypted dump → R2 (cavok-db-backups).
+# FlySchedule — daily Postgres backup → encrypted dump → R2 (cavok-db-backups).
 #
 # Reads from .env at the project root:
 #   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB

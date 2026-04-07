@@ -1,4 +1,4 @@
-// CAVOK — Input primitive.
+// FlySchedule — Input primitive.
 //
 // Mobile-first: 44px min-height, surfaces the numeric keyboard via
 // `inputMode` for HH:MM and number fields (PRD §7.2). Uses design

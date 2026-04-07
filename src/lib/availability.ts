@@ -1,4 +1,4 @@
-// CAVOK — availability windows.
+// FlySchedule — availability windows.
 //
 // ════════════════════════════════════════════════════════════════════
 // EUROPE/PARIS TIMEZONE TRAP — READ THIS BEFORE EDITING

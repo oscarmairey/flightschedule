@@ -1,4 +1,4 @@
-// CAVOK — one-shot Stripe Products + Prices setup script.
+// FlySchedule — one-shot Stripe Products + Prices setup script.
 //
 // Run:
 //   corepack pnpm tsx scripts/stripe-setup.ts
@@ -52,11 +52,11 @@ async function upsertProduct(pkg: (typeof PACKAGES)[keyof typeof PACKAGES]) {
 
   if (match) {
     if (
-      match.name !== `CAVOK ${pkg.label}` ||
+      match.name !== `FlySchedule ${pkg.label}` ||
       match.description !== pkg.description
     ) {
       await stripe.products.update(match.id, {
-        name: `CAVOK ${pkg.label}`,
+        name: `FlySchedule ${pkg.label}`,
         description: pkg.description,
       });
       console.log(`  ✓ Updated product ${match.id}`);
@@ -67,7 +67,7 @@ async function upsertProduct(pkg: (typeof PACKAGES)[keyof typeof PACKAGES]) {
   }
 
   const created = await stripe.products.create({
-    name: `CAVOK ${pkg.label}`,
+    name: `FlySchedule ${pkg.label}`,
     description: pkg.description,
     metadata: {
       [METADATA_KEY]: pkg.key,
@@ -142,7 +142,7 @@ async function upsertWebhookEndpoint(webhookUrl: string): Promise<string> {
   const created = await stripe.webhookEndpoints.create({
     url: webhookUrl,
     enabled_events: ["checkout.session.completed"],
-    description: "CAVOK Glass Cockpit — checkout completion",
+    description: "FlySchedule — checkout completion",
     metadata: { [METADATA_KEY]: "checkout" },
   });
 
@@ -156,7 +156,7 @@ async function upsertWebhookEndpoint(webhookUrl: string): Promise<string> {
 }
 
 async function main() {
-  console.log("CAVOK — Stripe products & prices setup");
+  console.log("FlySchedule — Stripe products & prices setup");
   console.log("=======================================\n");
 
   const results: { key: string; envVar: string; priceId: string }[] = [];
@@ -173,7 +173,7 @@ async function main() {
   // Webhook endpoint
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ??
-    "https://cavok.oscarmairey.com";
+    "https://flyschedule.org";
   const webhookUrl = `${appUrl}/api/webhooks/stripe`;
   console.log(`Webhook endpoint: ${webhookUrl}`);
   const webhookSecret = await upsertWebhookEndpoint(webhookUrl);

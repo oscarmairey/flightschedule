@@ -1,4 +1,4 @@
-// CAVOK Glass Cockpit — Auth.js v5 full configuration (Node runtime)
+// FlySchedule Glass Cockpit — Auth.js v5 full configuration (Node runtime)
 //
 // This file uses the Prisma client and bcryptjs, both of which need Node.js
 // APIs. It must NOT be imported from `proxy.ts` (which runs on the edge

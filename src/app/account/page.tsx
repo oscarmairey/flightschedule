@@ -1,4 +1,4 @@
-// CAVOK — /account page.
+// FlySchedule — /account page.
 //
 // Pilot-facing landing for HDV packages and transaction history.
 // PRD §3.1 (purchase) + §3.4.3 (transaction history).

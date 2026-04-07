@@ -1,4 +1,4 @@
-// CAVOK — Stripe webhook handler.
+// FlySchedule — Stripe webhook handler.
 //
 // LOAD-BEARING ARCHITECTURAL RULE #5:
 //
@@ -89,8 +89,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  const userId = session.client_reference_id ?? session.metadata?.cavokUserId;
-  const minutesRaw = session.metadata?.cavokHdvMin;
+  const userId = session.client_reference_id ?? session.metadata?.flyUserId;
+  const minutesRaw = session.metadata?.flyHdvMin;
 
   if (!userId || !minutesRaw) {
     console.error(
@@ -101,7 +101,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   const minutes = Number(minutesRaw);
   if (!Number.isInteger(minutes) || minutes <= 0) {
-    console.error(`[stripe-webhook] Invalid cavokHdvMin on ${session.id}: ${minutesRaw}`);
+    console.error(`[stripe-webhook] Invalid flyHdvMin on ${session.id}: ${minutesRaw}`);
     return;
   }
 

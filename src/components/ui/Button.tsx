@@ -1,4 +1,4 @@
-// CAVOK — Button primitive.
+// FlySchedule — Button primitive.
 //
 // Mobile-first: default min-height 44px touch target (PRD §7.2).
 // Variants: primary (sky-blue brand), secondary (warm surface),

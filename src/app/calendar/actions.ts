@@ -1,4 +1,4 @@
-// CAVOK — calendar / reservation server actions.
+// FlySchedule — calendar / reservation server actions.
 
 "use server";
 

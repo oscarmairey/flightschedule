@@ -1,4 +1,4 @@
-// CAVOK — server actions for /account.
+// FlySchedule — server actions for /account.
 //
 // Currently exposes one action: createCheckoutSession. The pilot picks
 // a package on /account and is redirected to Stripe Checkout. The webhook
@@ -47,13 +47,13 @@ export async function createCheckoutSession(formData: FormData) {
     line_items: [{ price: priceId, quantity: 1 }],
     customer_email: session.user.email,
     client_reference_id: session.user.id,
-    // The webhook reads cavokHdvMin to know how many minutes to credit.
+    // The webhook reads flyHdvMin to know how many minutes to credit.
     // Storing it explicitly (rather than re-deriving from the package
     // key) means a future price/duration change can't drift the credit.
     metadata: {
-      cavokPackageKey: packageKey,
-      cavokHdvMin: String(pkg.minutes),
-      cavokUserId: session.user.id,
+      flyPackageKey: packageKey,
+      flyHdvMin: String(pkg.minutes),
+      flyUserId: session.user.id,
     },
     automatic_tax: { enabled: true },
     success_url: `${appUrl}/account/checkout/success?session_id={CHECKOUT_SESSION_ID}`,

@@ -1,4 +1,4 @@
-// CAVOK — /admin/pilots/[id] — pilot detail with HDV adjust, reset, toggle.
+// FlySchedule — /admin/pilots/[id] — pilot detail with HDV adjust, reset, toggle.
 
 import Link from "next/link";
 import { notFound } from "next/navigation";

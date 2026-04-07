@@ -1,4 +1,4 @@
-// CAVOK — server-side session helpers.
+// FlySchedule — server-side session helpers.
 //
 // Defense-in-depth on top of `proxy.ts`. The proxy is a coarse filter
 // that blocks unauthenticated/wrong-role requests, but EVERY page and

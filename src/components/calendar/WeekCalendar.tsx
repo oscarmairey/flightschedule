@@ -1,4 +1,4 @@
-// CAVOK — weekly calendar grid.
+// FlySchedule — weekly calendar grid.
 //
 // Server component. Renders a Mon→Sun week with time-of-day rows on the
 // left axis. Availability windows are tinted in success-soft (sun on

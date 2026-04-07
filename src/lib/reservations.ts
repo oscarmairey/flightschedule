@@ -1,4 +1,4 @@
-// CAVOK — reservation booking and cancellation.
+// FlySchedule — reservation booking and cancellation.
 //
 // ════════════════════════════════════════════════════════════════════
 // HALF-OPEN INTERVAL CONVENTION
@@ -46,7 +46,7 @@ export class OverlapError extends Error {
 
 export class ReservationLockedError extends Error {
   constructor() {
-    super("Réservation verrouillée : un vol validé y est rattaché.");
+    super("Réservation verrouillée : un vol y est déjà rattaché.");
     this.name = "ReservationLockedError";
   }
 }
@@ -206,8 +206,9 @@ export type CancelReservationResult = {
  * start (PRD §3.2.4 / rule #7). Admins may cancel any reservation at
  * any time.
  *
- * A reservation that already has a Flight (validated or pending) cannot
- * be cancelled — the flight is the source of truth for what happened.
+ * A reservation that already has at least one Flight cannot be cancelled
+ * — the flight is the source of truth that the reservation actually
+ * happened, and is an immutable logbook record.
  */
 export async function cancelReservation(
   input: CancelReservationInput,
@@ -216,7 +217,7 @@ export async function cancelReservation(
     async (tx) => {
       const reservation = await tx.reservation.findUnique({
         where: { id: input.reservationId },
-        include: { flight: { select: { id: true, status: true } } },
+        include: { flights: { select: { id: true } } },
       });
       if (!reservation) {
         throw new Error("Réservation introuvable");
@@ -227,7 +228,7 @@ export async function cancelReservation(
       if (!input.isAdmin && reservation.userId !== input.actorId) {
         throw new Error("Accès refusé");
       }
-      if (reservation.flight) {
+      if (reservation.flights.length > 0) {
         throw new ReservationLockedError();
       }
 

@@ -1,4 +1,4 @@
-// CAVOK — French date and time formatters.
+// FlySchedule — French date and time formatters.
 //
 // CRITICAL: every date/time rendered in the app must come through one of
 // these helpers. Never call `date.toLocaleString()` or `Intl.DateTimeFormat`

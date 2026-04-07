@@ -1,4 +1,4 @@
-// CAVOK — /admin/pilots — pilot directory.
+// FlySchedule — /admin/pilots — pilot directory.
 
 import Link from "next/link";
 import { Users, Plus, ArrowRight } from "lucide-react";

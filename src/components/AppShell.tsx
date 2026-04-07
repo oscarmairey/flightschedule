@@ -1,4 +1,4 @@
-// CAVOK — application shell.
+// FlySchedule — application shell.
 //
 // Top bar (always visible):
 //   - Logo + Fraunces wordmark — the brand surface
@@ -42,7 +42,6 @@ const PILOT_ITEMS: NavItem[] = [
 
 const ADMIN_ITEMS: { href: string; label: string }[] = [
   { href: "/admin", label: COPY.nav.admin },
-  { href: "/admin/flights", label: COPY.nav.adminFlights },
   { href: "/admin/pilots", label: COPY.nav.adminPilots },
   { href: "/admin/availability", label: COPY.nav.adminAvailability },
   { href: "/admin/calendar", label: COPY.nav.adminCalendar },
@@ -61,7 +60,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
           <Link
             href="/dashboard"
             className="group flex items-center gap-2.5"
-            aria-label="CAVOK"
+            aria-label="FlySchedule"
           >
             <Image
               src="/logo.png"
@@ -72,7 +71,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
               priority
             />
             <span className="font-display text-xl font-semibold text-text-strong tracking-tight transition-colors group-hover:text-brand">
-              CAVOK
+              FlySchedule
             </span>
           </Link>
 

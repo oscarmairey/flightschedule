@@ -1,4 +1,4 @@
-// CAVOK — Stripe SDK singleton.
+// FlySchedule — Stripe SDK singleton.
 //
 // Pin the API version explicitly so a future SDK upgrade can't silently
 // change webhook event shapes underneath us.
@@ -23,7 +23,7 @@ export function getStripe(): Stripe {
     // and re-test the webhook end-to-end.
     apiVersion: "2025-09-30.clover",
     appInfo: {
-      name: "CAVOK Glass Cockpit",
+      name: "FlySchedule",
       version: "0.1.0",
     },
   });
@@ -36,7 +36,7 @@ export function getStripe(): Stripe {
  *
  * Prices in cents are HT (D3) — Stripe Tax computes 20% French VAT
  * on top at checkout. Stored here only for the setup script; the
- * webhook reads the credited minutes from `session.metadata.cavokHdvMin`
+ * webhook reads the credited minutes from `session.metadata.flyHdvMin`
  * which is the load-bearing value (so a future price change can't
  * accidentally drift from the credited duration).
  */

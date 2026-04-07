@@ -1,4 +1,4 @@
-// CAVOK — /admin/pilots/new — create a pilot.
+// FlySchedule — /admin/pilots/new — create a pilot.
 
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";

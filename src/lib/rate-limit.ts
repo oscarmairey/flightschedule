@@ -1,4 +1,4 @@
-// CAVOK — in-memory rate limiter (no Redis).
+// FlySchedule — in-memory rate limiter (no Redis).
 //
 // At 5–12 users on a single VPS, an in-memory token bucket is plenty.
 // We use it to:

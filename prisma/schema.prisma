@@ -1,4 +1,4 @@
-// CAVOK Glass Cockpit — Prisma schema
+// FlySchedule — Prisma schema
 // All durations stored as Int (minutes). Display as HH:MM only.
 // Transaction table is the source of truth for HDV.
 // User.hdvBalanceMin is denormalized for read performance.
@@ -28,17 +28,10 @@ enum ReservationStatus {
   CANCELLED_BY_ADMIN
 }
 
-enum FlightStatus {
-  PENDING
-  VALIDATED
-  REJECTED
-}
-
 enum TransactionType {
   PACKAGE_PURCHASE
   RESERVATION_DEBIT
   CANCELLATION_REFUND
-  FLIGHT_RECONCILIATION
   ADMIN_ADJUSTMENT
 }
 
@@ -98,8 +91,10 @@ model Reservation {
   cancelledById   String?           @db.Uuid
   cancelledBy     User?             @relation("ReservationCancelledBy", fields: [cancelledById], references: [id])
 
-  // 1:1 with Flight (a flight may not yet exist for a confirmed reservation).
-  flight          Flight?
+  // 1:N with Flight (a reservation may hold zero or more flights — one per
+  // logbook leg). The reservation is the unit of HDV consumption; flights
+  // are immutable logbook records with no HDV impact. See CLAUDE.md rule #4.
+  flights         Flight[]
 
   transactions    Transaction[]
 
@@ -116,19 +111,20 @@ model Flight {
   userId                   String       @db.Uuid
   user                     User         @relation(fields: [userId], references: [id])
 
-  // Every flight MUST reference a reservation (PRD §3.3 — 1:1 mandatory).
-  reservationId            String       @unique @db.Uuid
+  // Every flight MUST reference a reservation (PRD §3.3 — 1:N: a reservation
+  // can hold any number of flights). The reservation is the HDV unit; the
+  // flight is the logbook unit.
+  reservationId            String       @db.Uuid
   reservation              Reservation  @relation(fields: [reservationId], references: [id])
 
   date                     DateTime     @db.Date
   depAirport               String       // ICAO, e.g. "LFPN"
   arrAirport               String       // ICAO
 
-  // Both in minutes. Reconciliation delta = reservedDuration - actualDuration
-  // and is recorded as a Transaction (signed) when non-zero.
+  // Actual flown time in minutes. Recorded for the logbook only — there is
+  // NO reconciliation against the reservation's reservedDurationMin. The
+  // pilot is debited for the reservation slot, full stop.
   actualDurationMin        Int
-  reservedDurationMin      Int
-  reconciliationDeltaMin   Int          @default(0)
 
   // Engine times stored as "HH:MM" strings (optional, no timezone math needed).
   engineStart              String?      @db.VarChar(5)
@@ -141,18 +137,13 @@ model Flight {
   // The app server NEVER transits photo bytes — uploads go browser → R2 directly.
   photos                   String[]
 
-  status                   FlightStatus @default(PENDING)
-  adminNotes               String?
-  validatedAt              DateTime?
-  rejectedAt               DateTime?
-
   transactions             Transaction[]
 
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 
   @@index([userId])
-  @@index([status, createdAt])
+  @@index([reservationId])
   @@index([date])
 }
 

@@ -1,4 +1,4 @@
-// CAVOK — duration helpers.
+// FlySchedule — duration helpers.
 //
 // Architectural rule #1: all durations are stored as integer minutes. The
 // display layer is responsible for converting to/from HH:MM. Never use

@@ -1,4 +1,4 @@
-// CAVOK — HDV mutation chokepoint.
+// FlySchedule — HDV mutation chokepoint.
 //
 // ARCHITECTURAL RULE #2 (load-bearing):
 //
@@ -36,7 +36,7 @@ export type HdvMutationInput = {
    * adjustments this is the human-readable reason text. Optional otherwise.
    */
   reference?: string | null;
-  /** Optional FK to a flight (used by FLIGHT_RECONCILIATION). */
+  /** Optional FK to a flight (used by ADMIN_ADJUSTMENT when correcting an HDV balance in the context of a specific logbook entry). */
   flightId?: string | null;
   /** Optional FK to a reservation (used by RESERVATION_DEBIT / refund). */
   reservationId?: string | null;

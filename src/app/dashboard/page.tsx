@@ -1,4 +1,4 @@
-// CAVOK — pilot dashboard (full per PRD §3.4).
+// FlySchedule — pilot dashboard (full per PRD §3.4).
 //
 // The signature surface. The HDV balance is rendered with the Fraunces
 // display face at hero scale — this is the moment a pilot opens the
@@ -288,21 +288,6 @@ export default async function DashboardPage() {
                     <p className="font-display tabular text-base font-semibold text-text-strong">
                       {formatHHMM(f.actualDurationMin)}
                     </p>
-                    {f.status === "VALIDATED" && (
-                      <Badge variant="success" size="sm">
-                        Validé
-                      </Badge>
-                    )}
-                    {f.status === "PENDING" && (
-                      <Badge variant="warning" size="sm">
-                        En attente
-                      </Badge>
-                    )}
-                    {f.status === "REJECTED" && (
-                      <Badge variant="danger" size="sm">
-                        Rejeté
-                      </Badge>
-                    )}
                   </li>
                 ))}
               </ul>

@@ -1,4 +1,4 @@
-// CAVOK — root redirect.
+// FlySchedule — root redirect.
 //
 // Authenticated → /dashboard. Otherwise → /login. The proxy will then
 // kick the user to /setup-password if `mustResetPw` is set.

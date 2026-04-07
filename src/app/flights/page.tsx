@@ -1,17 +1,21 @@
-// CAVOK — /flights — pilot flight history.
+// FlySchedule — /flights — pilot flight history.
 //
 // Photos render via signed GET URLs generated server-side. Each render
 // generates a fresh batch of presigned URLs (15 min expiry).
+//
+// V1.1: flights are immutable logbook records, no status, no reconciliation.
+// A reservation can hold multiple flights — each card surfaces a CTA to
+// add another flight on the same reservation.
 
-import { History } from "lucide-react";
+import Link from "next/link";
+import { History, Plus } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
 import { formatDateFR, formatDateTimeFR } from "@/lib/format";
-import { formatHHMM, formatHHMMSigned } from "@/lib/duration";
+import { formatHHMM } from "@/lib/duration";
 import { presignGetUrl } from "@/lib/r2";
 import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
 import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
 
@@ -105,13 +109,6 @@ export default async function FlightsPage({
                         <span className="font-semibold text-text">
                           {formatHHMM(f.actualDurationMin)}
                         </span>
-                        {f.reconciliationDeltaMin !== 0 && (
-                          <span className="ml-2 text-xs text-text-subtle">
-                            (réservé {formatHHMM(f.reservedDurationMin)},{" "}
-                            {f.reconciliationDeltaMin > 0 ? "rendu" : "dépassement"}{" "}
-                            {formatHHMMSigned(f.reconciliationDeltaMin)})
-                          </span>
-                        )}
                       </p>
                       <p className="text-xs text-text-subtle">
                         {f.landings} atterrissage{f.landings > 1 ? "s" : ""}
@@ -120,15 +117,13 @@ export default async function FlightsPage({
                       </p>
                     </div>
                     <div className="shrink-0">
-                      {f.status === "VALIDATED" && (
-                        <Badge variant="brand">Validé</Badge>
-                      )}
-                      {f.status === "PENDING" && (
-                        <Badge variant="warning">En attente</Badge>
-                      )}
-                      {f.status === "REJECTED" && (
-                        <Badge variant="danger">Rejeté</Badge>
-                      )}
+                      <Link
+                        href={`/flights/new?reservation=${f.reservationId}`}
+                        className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text-muted shadow-xs transition-colors hover:border-brand hover:text-brand"
+                      >
+                        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                        Ajouter un vol
+                      </Link>
                     </div>
                   </div>
 

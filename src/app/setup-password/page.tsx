@@ -1,4 +1,4 @@
-// CAVOK — first-login (and admin-reset) password setup.
+// FlySchedule — first-login (and admin-reset) password setup.
 //
 // Triggered by `User.mustResetPw = true` (set by `prisma/seed.ts` for new
 // pilots and by `resetPilotPassword` admin action). The proxy at
@@ -105,7 +105,7 @@ export default async function SetupPasswordPage({
             priority
           />
           <span className="font-display text-2xl font-semibold tracking-tight text-text-strong">
-            CAVOK
+            FlySchedule
           </span>
         </div>
 

@@ -1,4 +1,4 @@
-// CAVOK — Card primitive.
+// FlySchedule — Card primitive.
 //
 // Variants:
 //   - elevated (default): warm white surface with soft shadow
