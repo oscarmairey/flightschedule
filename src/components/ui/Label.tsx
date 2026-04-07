@@ -16,10 +16,18 @@ export function Label({
   return (
     <label
       {...rest}
-      className={`block text-sm font-medium text-zinc-900 dark:text-zinc-100 ${className}`}
+      className={`block text-sm font-medium text-text-strong ${className}`}
     >
       {children}
-      {required && <span className="ml-0.5 text-red-600">*</span>}
+      {required && (
+        <span
+          aria-hidden="true"
+          className="ml-0.5 text-danger"
+          title="obligatoire"
+        >
+          *
+        </span>
+      )}
     </label>
   );
 }

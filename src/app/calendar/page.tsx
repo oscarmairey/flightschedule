@@ -1,7 +1,7 @@
 // CAVOK — /calendar — pilot weekly calendar with booking.
 
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { ChevronLeft, ChevronRight, CalendarRange } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { Badge } from "@/components/ui/Badge";
+import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
 import { WeekCalendar } from "@/components/calendar/WeekCalendar";
 import { createReservation, cancelReservationAction } from "./actions";
@@ -54,6 +55,16 @@ function fmtWeekStartParam(d: Date): string {
     day: "2-digit",
   });
   return fmt.format(d); // YYYY-MM-DD
+}
+
+function fmtWeekRangeFR(start: Date): string {
+  const end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
+  const fmt = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: TZ,
+    day: "numeric",
+    month: "long",
+  });
+  return `${fmt.format(start)} – ${fmt.format(end)}`;
 }
 
 export default async function CalendarPage({
@@ -129,42 +140,51 @@ export default async function CalendarPage({
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
-        <header className="flex flex-wrap items-center justify-between gap-4">
+      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-12">
+        <header className="mb-8 flex flex-wrap items-end justify-between gap-6">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">{COPY.nav.calendar}</h1>
-            <p className="mt-1 text-sm text-zinc-500">
-              Solde actuel :{" "}
-              <Badge tier={balanceTier(balanceMin)}>{formatHHMM(balanceMin)}</Badge>
+            <p className="flex items-center gap-2 text-sm font-medium uppercase tracking-[0.14em] text-text-subtle">
+              <CalendarRange className="h-4 w-4" aria-hidden="true" />
+              {COPY.nav.calendar}
+            </p>
+            <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
+              {fmtWeekRangeFR(weekStart)}
+            </h1>
+            <p className="mt-3 flex items-center gap-2 text-sm text-text-muted">
+              Solde actuel
+              <Badge tier={balanceTier(balanceMin)}>
+                {formatHHMM(balanceMin)}
+              </Badge>
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Link href={`/calendar?week=${prevWeek}`}>
-              <Button variant="secondary" size="sm">← Sem. préc.</Button>
+              <Button variant="secondary" size="sm" aria-label="Semaine précédente">
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Semaine précédente</span>
+              </Button>
             </Link>
             <Link href={`/calendar?week=${thisWeek}`}>
-              <Button variant="secondary" size="sm">Cette semaine</Button>
+              <Button variant="secondary" size="sm">
+                Aujourd&apos;hui
+              </Button>
             </Link>
             <Link href={`/calendar?week=${nextWeek}`}>
-              <Button variant="secondary" size="sm">Sem. suiv. →</Button>
+              <Button variant="secondary" size="sm" aria-label="Semaine suivante">
+                <span className="hidden sm:inline">Semaine suivante</span>
+                <ChevronRight className="h-4 w-4" aria-hidden="true" />
+              </Button>
             </Link>
           </div>
         </header>
 
         {banner && (
-          <div
-            className={`rounded-md border px-4 py-3 text-sm ${
-              banner.tone === "success"
-                ? "border-emerald-300 bg-emerald-50 text-emerald-900"
-                : "border-red-300 bg-red-50 text-red-900"
-            }`}
-            role="alert"
-          >
-            {banner.msg}
+          <div className="mb-6">
+            <Alert tone={banner.tone}>{banner.msg}</Alert>
           </div>
         )}
 
-        <Card className="overflow-hidden p-0">
+        <Card padded={false} className="overflow-hidden">
           <WeekCalendar
             weekStart={weekStart}
             currentUserId={session.user.id}
@@ -174,16 +194,30 @@ export default async function CalendarPage({
 
         {/* Booking form (revealed when a slot is selected) */}
         {preselectDate && preselectTime && (
-          <Card>
-            <h2 className="mb-4 text-xl font-semibold">Nouvelle réservation</h2>
-            <form action={createReservation} className="grid gap-3 sm:grid-cols-4">
+          <Card className="mt-8" tone="brand">
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-text-strong">
+              Nouvelle réservation
+            </h2>
+            <p className="mt-1 text-sm text-text-muted">
+              Le solde HDV sera débité immédiatement à la confirmation. Les
+              annulations à moins de 24 h ne sont pas autorisées sans
+              intervention de l&apos;administrateur.
+            </p>
+            <form
+              action={createReservation}
+              className="mt-6 grid gap-4 sm:grid-cols-4"
+            >
               <input type="hidden" name="date" value={preselectDate} />
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <Label>Date</Label>
-                <p className="px-1 py-2 text-sm">{preselectDate}</p>
+                <p className="font-display tabular pt-2 text-base font-semibold text-text-strong">
+                  {formatDateFR(new Date(`${preselectDate}T12:00:00+02:00`))}
+                </p>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="startStr" required>Heure de début</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="startStr" required>
+                  Heure de début
+                </Label>
                 <Input
                   id="startStr"
                   name="startStr"
@@ -193,13 +227,15 @@ export default async function CalendarPage({
                   required
                 />
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="durationMin" required>Durée</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="durationMin" required>
+                  Durée
+                </Label>
                 <select
                   id="durationMin"
                   name="durationMin"
                   required
-                  className="block w-full min-h-11 rounded-md border border-zinc-300 px-3 py-2 text-base shadow-sm focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900"
+                  className="block w-full min-h-11 rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand focus:outline-none"
                 >
                   {Array.from({ length: 16 }).map((_, i) => {
                     const m = (i + 1) * 30;
@@ -207,37 +243,51 @@ export default async function CalendarPage({
                     const mm = m % 60;
                     const label = `${h}h${mm.toString().padStart(2, "0")}`;
                     return (
-                      <option key={m} value={m}>{label}</option>
+                      <option key={m} value={m}>
+                        {label}
+                      </option>
                     );
                   })}
                 </select>
               </div>
               <div className="flex items-end">
-                <Button type="submit" fullWidth>Réserver</Button>
+                <Button type="submit" fullWidth>
+                  Réserver
+                </Button>
               </div>
             </form>
-            <p className="mt-3 text-xs text-zinc-500">
-              Le solde HDV sera débité immédiatement à la confirmation. Les annulations
-              à moins de 24 h ne sont pas autorisées sans intervention de l'administrateur.
-            </p>
           </Card>
         )}
 
         {/* My upcoming reservations */}
-        <Card>
-          <h2 className="mb-4 text-xl font-semibold">Mes réservations à venir</h2>
+        <section className="mt-12">
+          <h2 className="font-display mb-4 text-2xl font-semibold tracking-tight text-text-strong">
+            Mes réservations à venir
+          </h2>
           {upcoming.length === 0 ? (
-            <p className="text-sm text-zinc-500">Aucune réservation à venir.</p>
+            <Card tone="sunken">
+              <p className="text-sm text-text-muted">
+                Aucune réservation à venir. Choisissez un créneau dans le
+                calendrier ci-dessus.
+              </p>
+            </Card>
           ) : (
-            <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+            <ul className="divide-y divide-border-subtle border-y border-border-subtle">
               {upcoming.map((r) => {
-                const cutoff = new Date(r.startsAt.getTime() - 24 * 60 * 60 * 1000);
+                const cutoff = new Date(
+                  r.startsAt.getTime() - 24 * 60 * 60 * 1000,
+                );
                 const cancellable = new Date() < cutoff;
                 return (
-                  <li key={r.id} className="flex items-center justify-between py-3 text-sm">
+                  <li
+                    key={r.id}
+                    className="flex flex-wrap items-center justify-between gap-3 py-4"
+                  >
                     <div>
-                      <div className="font-medium">{formatDateFR(r.startsAt)}</div>
-                      <div className="text-zinc-500">
+                      <p className="font-display text-base font-semibold text-text-strong">
+                        {formatDateFR(r.startsAt)}
+                      </p>
+                      <p className="mt-0.5 text-sm tabular text-text-muted">
                         {new Intl.DateTimeFormat("fr-FR", {
                           timeZone: TZ,
                           hour: "2-digit",
@@ -249,24 +299,30 @@ export default async function CalendarPage({
                           hour: "2-digit",
                           minute: "2-digit",
                         }).format(r.endsAt)}
-                        {" · "}
-                        {formatHHMM(r.durationMin)}
-                      </div>
+                        <span className="mx-2 text-text-subtle">·</span>
+                        <span className="font-semibold text-text">
+                          {formatHHMM(r.durationMin)}
+                        </span>
+                      </p>
                     </div>
                     {cancellable ? (
                       <form action={cancelReservationAction}>
                         <input type="hidden" name="reservationId" value={r.id} />
-                        <Button type="submit" variant="ghost" size="sm">Annuler</Button>
+                        <Button type="submit" variant="ghost" size="sm">
+                          Annuler
+                        </Button>
                       </form>
                     ) : (
-                      <span className="text-xs text-zinc-500">— 24 h écoulées</span>
+                      <span className="text-xs italic text-text-subtle">
+                        Annulation fermée (moins de 24 h)
+                      </span>
                     )}
                   </li>
                 );
               })}
             </ul>
           )}
-        </Card>
+        </section>
       </div>
     </AppShell>
   );

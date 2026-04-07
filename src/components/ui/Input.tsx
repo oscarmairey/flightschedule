@@ -1,7 +1,8 @@
 // CAVOK — Input primitive.
 //
 // Mobile-first: 44px min-height, surfaces the numeric keyboard via
-// `inputMode` for HH:MM and number fields (PRD §7.2).
+// `inputMode` for HH:MM and number fields (PRD §7.2). Uses design
+// tokens so dark mode and brand-color changes flow through.
 
 import type { InputHTMLAttributes } from "react";
 
@@ -11,9 +12,9 @@ export type InputProps = InputHTMLAttributes<HTMLInputElement> & {
 
 export function Input({ invalid = false, className = "", ...rest }: InputProps) {
   const base =
-    "block w-full min-h-11 rounded-md border px-3 py-2 text-base shadow-sm focus:outline-none focus:ring-1 dark:bg-zinc-900";
+    "block w-full min-h-11 rounded-md border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs transition-colors duration-150 focus:outline-none placeholder:text-text-subtle";
   const border = invalid
-    ? "border-red-500 focus:border-red-500 focus:ring-red-500"
-    : "border-zinc-300 focus:border-zinc-900 focus:ring-zinc-900 dark:border-zinc-700";
+    ? "border-danger focus:border-danger focus-visible:outline-danger"
+    : "border-border hover:border-border-strong focus:border-brand";
   return <input {...rest} className={`${base} ${border} ${className}`} />;
 }

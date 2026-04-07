@@ -1,6 +1,7 @@
 // CAVOK — /admin/calendar — admin calendar with cancel-anytime affordance.
 
 import Link from "next/link";
+import { ChevronLeft, ChevronRight, CalendarRange } from "lucide-react";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
@@ -8,6 +9,7 @@ import { formatDateFR } from "@/lib/format";
 import { formatHHMM } from "@/lib/duration";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
 import { WeekCalendar } from "@/components/calendar/WeekCalendar";
 import { adminCancelReservation } from "@/app/calendar/actions";
@@ -46,6 +48,16 @@ function fmtWeekStartParam(d: Date): string {
   }).format(d);
 }
 
+function fmtWeekRangeFR(start: Date): string {
+  const end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
+  const fmt = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: TZ,
+    day: "numeric",
+    month: "long",
+  });
+  return `${fmt.format(start)} – ${fmt.format(end)}`;
+}
+
 export default async function AdminCalendarPage({
   searchParams,
 }: {
@@ -75,48 +87,64 @@ export default async function AdminCalendarPage({
     sp.cancelled === "1"
       ? { tone: "success" as const, msg: "Réservation annulée." }
       : sp.error === "locked"
-        ? { tone: "error" as const, msg: "Réservation verrouillée par un vol existant." }
+        ? {
+            tone: "error" as const,
+            msg: "Réservation verrouillée par un vol existant.",
+          }
         : null;
 
   const buildSlotHref = () => "#"; // admin calendar is read-only on the grid
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
-        <header className="flex flex-wrap items-center justify-between gap-4">
+      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-12">
+        <header className="mb-8 flex flex-wrap items-end justify-between gap-6">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">{COPY.nav.adminCalendar}</h1>
-            <p className="mt-1 text-sm text-zinc-500">
+            <p className="flex items-center gap-2 text-sm font-medium uppercase tracking-[0.14em] text-text-subtle">
+              <CalendarRange className="h-4 w-4" aria-hidden="true" />
+              {COPY.nav.adminCalendar}
+            </p>
+            <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
+              {fmtWeekRangeFR(weekStart)}
+            </h1>
+            <p className="mt-2 text-sm text-text-muted">
               Vue admin — annulation possible à tout moment.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href={`/admin/calendar?week=${fmtWeekStartParam(shiftWeek(weekStart, -1))}`}>
-              <Button variant="secondary" size="sm">← Sem. préc.</Button>
+            <Link
+              href={`/admin/calendar?week=${fmtWeekStartParam(shiftWeek(weekStart, -1))}`}
+            >
+              <Button variant="secondary" size="sm" aria-label="Semaine précédente">
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Précédente</span>
+              </Button>
             </Link>
-            <Link href={`/admin/calendar?week=${fmtWeekStartParam(startOfParisWeek(now))}`}>
-              <Button variant="secondary" size="sm">Cette semaine</Button>
+            <Link
+              href={`/admin/calendar?week=${fmtWeekStartParam(startOfParisWeek(now))}`}
+            >
+              <Button variant="secondary" size="sm">
+                Aujourd&apos;hui
+              </Button>
             </Link>
-            <Link href={`/admin/calendar?week=${fmtWeekStartParam(shiftWeek(weekStart, 1))}`}>
-              <Button variant="secondary" size="sm">Sem. suiv. →</Button>
+            <Link
+              href={`/admin/calendar?week=${fmtWeekStartParam(shiftWeek(weekStart, 1))}`}
+            >
+              <Button variant="secondary" size="sm" aria-label="Semaine suivante">
+                <span className="hidden sm:inline">Suivante</span>
+                <ChevronRight className="h-4 w-4" aria-hidden="true" />
+              </Button>
             </Link>
           </div>
         </header>
 
         {banner && (
-          <div
-            className={`rounded-md border px-4 py-3 text-sm ${
-              banner.tone === "success"
-                ? "border-emerald-300 bg-emerald-50 text-emerald-900"
-                : "border-red-300 bg-red-50 text-red-900"
-            }`}
-            role="alert"
-          >
-            {banner.msg}
+          <div className="mb-6">
+            <Alert tone={banner.tone}>{banner.msg}</Alert>
           </div>
         )}
 
-        <Card className="overflow-hidden p-0">
+        <Card padded={false} className="overflow-hidden">
           <WeekCalendar
             weekStart={weekStart}
             currentUserId={admin.user.id}
@@ -125,19 +153,30 @@ export default async function AdminCalendarPage({
           />
         </Card>
 
-        <Card>
-          <h2 className="mb-4 text-xl font-semibold">Réservations de la semaine</h2>
+        <section className="mt-12">
+          <h2 className="font-display mb-4 text-2xl font-semibold tracking-tight text-text-strong">
+            Réservations de la semaine
+          </h2>
           {reservations.length === 0 ? (
-            <p className="text-sm text-zinc-500">Aucune réservation cette semaine.</p>
+            <Card tone="sunken">
+              <p className="text-sm text-text-muted">
+                Aucune réservation cette semaine.
+              </p>
+            </Card>
           ) : (
-            <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+            <ul className="divide-y divide-border-subtle border-y border-border-subtle">
               {reservations.map((r) => (
-                <li key={r.id} className="flex items-center justify-between py-3 text-sm">
+                <li
+                  key={r.id}
+                  className="flex flex-wrap items-center justify-between gap-3 py-4"
+                >
                   <div>
-                    <div className="font-medium">
-                      {r.user.name} · {formatDateFR(r.startsAt)}
-                    </div>
-                    <div className="text-zinc-500">
+                    <p className="font-display text-base font-semibold text-text-strong">
+                      {r.user.name}
+                      <span className="mx-2 text-text-subtle">·</span>
+                      {formatDateFR(r.startsAt)}
+                    </p>
+                    <p className="mt-0.5 text-sm tabular text-text-muted">
                       {new Intl.DateTimeFormat("fr-FR", {
                         timeZone: TZ,
                         hour: "2-digit",
@@ -149,19 +188,23 @@ export default async function AdminCalendarPage({
                         hour: "2-digit",
                         minute: "2-digit",
                       }).format(r.endsAt)}
-                      {" · "}
-                      {formatHHMM(r.durationMin)}
-                    </div>
+                      <span className="mx-2 text-text-subtle">·</span>
+                      <span className="font-semibold text-text">
+                        {formatHHMM(r.durationMin)}
+                      </span>
+                    </p>
                   </div>
                   <form action={adminCancelReservation}>
                     <input type="hidden" name="reservationId" value={r.id} />
-                    <Button type="submit" variant="danger" size="sm">Annuler</Button>
+                    <Button type="submit" variant="danger" size="sm">
+                      Annuler
+                    </Button>
                   </form>
                 </li>
               ))}
             </ul>
           )}
-        </Card>
+        </section>
       </div>
     </AppShell>
   );

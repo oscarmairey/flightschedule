@@ -5,11 +5,17 @@
 // the user to refresh if it hasn't bumped yet.
 
 import Link from "next/link";
+import { CheckCircle2, ArrowRight } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
-import { formatHHMM, balanceTier } from "@/lib/duration";
-import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import {
+  formatHHMM,
+  balanceTier,
+  BALANCE_TIER_FG_CLASSES,
+  BALANCE_TIER_LABELS,
+} from "@/lib/duration";
+import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { AppShell } from "@/components/AppShell";
@@ -21,39 +27,47 @@ export default async function CheckoutSuccessPage() {
     select: { hdvBalanceMin: true },
   });
   const balance = user?.hdvBalanceMin ?? 0;
+  const tier = balanceTier(balance);
+  const tierFg = BALANCE_TIER_FG_CLASSES[tier];
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-md px-4 py-12 space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>{COPY.account.successTitle}</CardTitle>
-          </CardHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              {COPY.account.successBody}
-            </p>
-            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4 text-center dark:border-zinc-800 dark:bg-zinc-900">
-              <p className="text-xs uppercase tracking-wide text-zinc-500">
-                {COPY.dashboard.balanceLabel}
-              </p>
-              <p className="mt-1 text-3xl font-semibold tracking-tight">
-                {formatHHMM(balance)}
-              </p>
-              <Badge tier={balanceTier(balance)} className="mt-2">
-                {balanceTier(balance) === "green"
-                  ? "Solde confortable"
-                  : balanceTier(balance) === "amber"
-                    ? "Solde moyen"
-                    : "Solde faible"}
-              </Badge>
-            </div>
-            <p className="text-xs text-zinc-500">{COPY.account.successPending}</p>
-            <Link href="/dashboard">
-              <Button fullWidth>{COPY.account.backToDashboard}</Button>
-            </Link>
-          </div>
+      <div className="mx-auto max-w-md px-4 py-14 sm:py-20">
+        <div className="mb-8 inline-flex h-14 w-14 items-center justify-center rounded-full bg-success-soft text-success">
+          <CheckCircle2 className="h-7 w-7" aria-hidden="true" />
+        </div>
+        <h1 className="font-display text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
+          {COPY.account.successTitle}
+        </h1>
+        <p className="mt-3 text-base leading-relaxed text-text-muted">
+          {COPY.account.successBody}
+        </p>
+
+        <Card tone="brand" className="mt-8 p-7">
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-brand-soft-fg/80">
+            {COPY.dashboard.balanceLabel}
+          </p>
+          <p
+            className={`font-display tabular mt-2 text-6xl font-semibold leading-none tracking-tight ${tierFg}`}
+          >
+            {formatHHMM(balance)}
+          </p>
+          <Badge tier={tier} className="mt-4">
+            <span aria-hidden="true">●</span>
+            {BALANCE_TIER_LABELS[tier]}
+          </Badge>
         </Card>
+
+        <p className="mt-6 text-xs leading-relaxed text-text-subtle">
+          {COPY.account.successPending}
+        </p>
+
+        <Link href="/dashboard" className="mt-8 block">
+          <Button fullWidth size="lg">
+            {COPY.account.backToDashboard}
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </Link>
       </div>
     </AppShell>
   );

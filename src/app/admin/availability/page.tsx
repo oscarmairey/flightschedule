@@ -1,5 +1,6 @@
 // CAVOK — /admin/availability — recurring + per-date availability.
 
+import { CalendarClock, Trash2 } from "lucide-react";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
@@ -9,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { Badge } from "@/components/ui/Badge";
+import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
 import {
   createRecurringBlock,
@@ -67,128 +69,158 @@ export default async function AvailabilityPage({
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-5xl px-4 py-8 space-y-8">
-        <header>
-          <h1 className="text-3xl font-semibold tracking-tight">{COPY.nav.adminAvailability}</h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Définit les fenêtres où le Cessna F-GBQA est réservable.
+      <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-12">
+        <header className="mb-10">
+          <p className="flex items-center gap-2 text-sm font-medium uppercase tracking-[0.14em] text-text-subtle">
+            <CalendarClock className="h-4 w-4" aria-hidden="true" />
+            {COPY.nav.adminAvailability}
+          </p>
+          <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
+            Disponibilités du F-GBQA
+          </h1>
+          <p className="mt-3 max-w-xl text-base text-text-muted">
+            Définit les fenêtres où le Cessna est réservable. Les exceptions
+            ponctuelles l&apos;emportent toujours sur les blocs récurrents.
           </p>
         </header>
 
         {banner && (
-          <div
-            className={`rounded-md border px-4 py-3 text-sm ${
-              banner.tone === "success"
-                ? "border-emerald-300 bg-emerald-50 text-emerald-900"
-                : "border-red-300 bg-red-50 text-red-900"
-            }`}
-            role="alert"
-          >
-            {banner.msg}
+          <div className="mb-6">
+            <Alert tone={banner.tone}>{banner.msg}</Alert>
           </div>
         )}
 
         {/* Create recurring */}
-        <Card>
+        <Card className="mb-10">
           <CardHeader>
             <CardTitle>Disponibilité récurrente</CardTitle>
             <CardDescription>
-              Hebdomadaire — par exemple « Lundi 08:00–18:00 ». Les exceptions ci-dessous
-              prennent toujours la priorité sur ces blocs.
+              Hebdomadaire — par exemple « Lundi 08:00–18:00 ». Les exceptions
+              ci-dessous prennent toujours la priorité.
             </CardDescription>
           </CardHeader>
-          <form action={createRecurringBlock} className="grid gap-3 sm:grid-cols-5">
-            <div className="space-y-1">
-              <Label htmlFor="dayOfWeek" required>Jour</Label>
+          <form
+            action={createRecurringBlock}
+            className="grid gap-3 sm:grid-cols-5"
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="dayOfWeek" required>
+                Jour
+              </Label>
               <select
                 id="dayOfWeek"
                 name="dayOfWeek"
                 required
-                className="block w-full min-h-11 rounded-md border border-zinc-300 px-3 py-2 text-base shadow-sm focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900"
+                className="block w-full min-h-11 rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand focus:outline-none"
               >
                 {DAY_LABELS_FR.map((label, idx) => (
-                  <option key={idx} value={idx}>{label}</option>
+                  <option key={idx} value={idx}>
+                    {label}
+                  </option>
                 ))}
               </select>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="rec-start" required>Début</Label>
-              <Input id="rec-start" name="startStr" type="time" required />
+            <div className="space-y-1.5">
+              <Label htmlFor="rec-start" required>
+                Début
+              </Label>
+              <Input
+                id="rec-start"
+                name="startStr"
+                type="time"
+                required
+                className="tabular"
+              />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="rec-end" required>Fin</Label>
-              <Input id="rec-end" name="endStr" type="time" required />
+            <div className="space-y-1.5">
+              <Label htmlFor="rec-end" required>
+                Fin
+              </Label>
+              <Input
+                id="rec-end"
+                name="endStr"
+                type="time"
+                required
+                className="tabular"
+              />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="rec-type" required>Type</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="rec-type" required>
+                Type
+              </Label>
               <select
                 id="rec-type"
                 name="type"
                 required
-                className="block w-full min-h-11 rounded-md border border-zinc-300 px-3 py-2 text-base shadow-sm focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900"
+                className="block w-full min-h-11 rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand focus:outline-none"
               >
                 <option value="AVAILABLE">Disponible</option>
                 <option value="UNAVAILABLE">Indisponible</option>
               </select>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <Label htmlFor="rec-reason">Motif</Label>
-              <Input id="rec-reason" name="reason" type="text" placeholder="facultatif" maxLength={500} />
+              <Input
+                id="rec-reason"
+                name="reason"
+                type="text"
+                placeholder="facultatif"
+                maxLength={500}
+              />
             </div>
             <div className="sm:col-span-5">
               <Button type="submit">Ajouter</Button>
             </div>
           </form>
 
-          <div className="mt-6 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900">
-                <tr>
-                  <th className="px-3 py-2">Jour</th>
-                  <th className="px-3 py-2">Plage</th>
-                  <th className="px-3 py-2">Type</th>
-                  <th className="px-3 py-2">Motif</th>
-                  <th className="px-3 py-2 text-right"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                {recurring.map((b) => (
-                  <tr key={b.id}>
-                    <td className="px-3 py-2 font-medium">{DAY_LABELS_FR[b.dayOfWeek ?? 0]}</td>
-                    <td className="px-3 py-2 text-zinc-700">
-                      {fmtMinutes(b.startMinutes)} – {fmtMinutes(b.endMinutes)}
-                    </td>
-                    <td className="px-3 py-2">
-                      {b.type === "AVAILABLE" ? (
-                        <Badge variant="success">Disponible</Badge>
-                      ) : (
-                        <Badge variant="danger">Indisponible</Badge>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-zinc-600">{b.reason ?? "—"}</td>
-                    <td className="px-3 py-2 text-right">
-                      <form action={deleteAvailabilityBlock}>
-                        <input type="hidden" name="id" value={b.id} />
-                        <button
-                          type="submit"
-                          className="text-sm font-medium text-red-700 hover:underline"
-                        >
-                          Supprimer
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
-                ))}
-                {recurring.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-sm text-zinc-500">
-                      Aucune disponibilité récurrente.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          {recurring.length === 0 ? (
+            <p className="mt-6 text-sm text-text-muted">
+              Aucune disponibilité récurrente définie.
+            </p>
+          ) : (
+            <ul className="mt-6 divide-y divide-border-subtle border-t border-border-subtle">
+              {recurring.map((b) => (
+                <li
+                  key={b.id}
+                  className="flex flex-wrap items-center justify-between gap-3 py-3.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-display text-base font-semibold text-text-strong">
+                      {DAY_LABELS_FR[b.dayOfWeek ?? 0]}
+                      <span className="mx-2 text-text-subtle">·</span>
+                      <span className="tabular text-text-muted">
+                        {fmtMinutes(b.startMinutes)} – {fmtMinutes(b.endMinutes)}
+                      </span>
+                    </p>
+                    {b.reason && (
+                      <p className="mt-0.5 text-xs text-text-subtle">
+                        {b.reason}
+                      </p>
+                    )}
+                  </div>
+                  {b.type === "AVAILABLE" ? (
+                    <Badge variant="success" size="sm">
+                      Disponible
+                    </Badge>
+                  ) : (
+                    <Badge variant="danger" size="sm">
+                      Indisponible
+                    </Badge>
+                  )}
+                  <form action={deleteAvailabilityBlock}>
+                    <input type="hidden" name="id" value={b.id} />
+                    <button
+                      type="submit"
+                      aria-label="Supprimer cette disponibilité"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-text-subtle transition-colors hover:bg-danger-soft hover:text-danger"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
 
         {/* Per-date overrides */}
@@ -196,93 +228,127 @@ export default async function AvailabilityPage({
           <CardHeader>
             <CardTitle>Exceptions ponctuelles</CardTitle>
             <CardDescription>
-              Une exception pour une date donnée remplace TOUS les blocs récurrents
-              de ce jour.
+              Une exception pour une date donnée remplace TOUS les blocs
+              récurrents de ce jour.
             </CardDescription>
           </CardHeader>
-          <form action={createOverrideBlock} className="grid gap-3 sm:grid-cols-5">
-            <div className="space-y-1">
-              <Label htmlFor="ov-date" required>Date</Label>
-              <Input id="ov-date" name="date" type="date" required />
+          <form
+            action={createOverrideBlock}
+            className="grid gap-3 sm:grid-cols-5"
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="ov-date" required>
+                Date
+              </Label>
+              <Input
+                id="ov-date"
+                name="date"
+                type="date"
+                required
+                className="tabular"
+              />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="ov-start" required>Début</Label>
-              <Input id="ov-start" name="startStr" type="time" required />
+            <div className="space-y-1.5">
+              <Label htmlFor="ov-start" required>
+                Début
+              </Label>
+              <Input
+                id="ov-start"
+                name="startStr"
+                type="time"
+                required
+                className="tabular"
+              />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="ov-end" required>Fin</Label>
-              <Input id="ov-end" name="endStr" type="time" required />
+            <div className="space-y-1.5">
+              <Label htmlFor="ov-end" required>
+                Fin
+              </Label>
+              <Input
+                id="ov-end"
+                name="endStr"
+                type="time"
+                required
+                className="tabular"
+              />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="ov-type" required>Type</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="ov-type" required>
+                Type
+              </Label>
               <select
                 id="ov-type"
                 name="type"
                 required
-                className="block w-full min-h-11 rounded-md border border-zinc-300 px-3 py-2 text-base shadow-sm focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900"
+                className="block w-full min-h-11 rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand focus:outline-none"
               >
                 <option value="AVAILABLE">Disponible</option>
                 <option value="UNAVAILABLE">Indisponible</option>
               </select>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <Label htmlFor="ov-reason">Motif</Label>
-              <Input id="ov-reason" name="reason" type="text" placeholder="facultatif" maxLength={500} />
+              <Input
+                id="ov-reason"
+                name="reason"
+                type="text"
+                placeholder="facultatif"
+                maxLength={500}
+              />
             </div>
             <div className="sm:col-span-5">
               <Button type="submit">Ajouter une exception</Button>
             </div>
           </form>
 
-          <div className="mt-6 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900">
-                <tr>
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Plage</th>
-                  <th className="px-3 py-2">Type</th>
-                  <th className="px-3 py-2">Motif</th>
-                  <th className="px-3 py-2 text-right"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                {overrides.map((b) => (
-                  <tr key={b.id}>
-                    <td className="px-3 py-2 font-medium">{formatDateFR(b.specificDate)}</td>
-                    <td className="px-3 py-2 text-zinc-700">
-                      {fmtMinutes(b.startMinutes)} – {fmtMinutes(b.endMinutes)}
-                    </td>
-                    <td className="px-3 py-2">
-                      {b.type === "AVAILABLE" ? (
-                        <Badge variant="success">Disponible</Badge>
-                      ) : (
-                        <Badge variant="danger">Indisponible</Badge>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-zinc-600">{b.reason ?? "—"}</td>
-                    <td className="px-3 py-2 text-right">
-                      <form action={deleteAvailabilityBlock}>
-                        <input type="hidden" name="id" value={b.id} />
-                        <button
-                          type="submit"
-                          className="text-sm font-medium text-red-700 hover:underline"
-                        >
-                          Supprimer
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
-                ))}
-                {overrides.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-sm text-zinc-500">
-                      Aucune exception définie.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          {overrides.length === 0 ? (
+            <p className="mt-6 text-sm text-text-muted">
+              Aucune exception définie.
+            </p>
+          ) : (
+            <ul className="mt-6 divide-y divide-border-subtle border-t border-border-subtle">
+              {overrides.map((b) => (
+                <li
+                  key={b.id}
+                  className="flex flex-wrap items-center justify-between gap-3 py-3.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-display text-base font-semibold text-text-strong">
+                      {formatDateFR(b.specificDate)}
+                      <span className="mx-2 text-text-subtle">·</span>
+                      <span className="tabular text-text-muted">
+                        {fmtMinutes(b.startMinutes)} – {fmtMinutes(b.endMinutes)}
+                      </span>
+                    </p>
+                    {b.reason && (
+                      <p className="mt-0.5 text-xs text-text-subtle">
+                        {b.reason}
+                      </p>
+                    )}
+                  </div>
+                  {b.type === "AVAILABLE" ? (
+                    <Badge variant="success" size="sm">
+                      Disponible
+                    </Badge>
+                  ) : (
+                    <Badge variant="danger" size="sm">
+                      Indisponible
+                    </Badge>
+                  )}
+                  <form action={deleteAvailabilityBlock}>
+                    <input type="hidden" name="id" value={b.id} />
+                    <button
+                      type="submit"
+                      aria-label="Supprimer cette exception"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-text-subtle transition-colors hover:bg-danger-soft hover:text-danger"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       </div>
     </AppShell>

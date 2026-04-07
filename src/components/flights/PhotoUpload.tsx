@@ -14,7 +14,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Button } from "@/components/ui/Button";
+import { Upload, X, Loader2, AlertCircle } from "lucide-react";
 
 const MAX_PHOTOS = 5;
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -98,9 +98,18 @@ export function PhotoUpload({ name }: { name: string }) {
     setPhotos((prev) => prev.filter((p) => p.key !== key));
   }
 
+  const slotsLeft = MAX_PHOTOS - photos.length;
+
   return (
-    <div className="space-y-3">
-      <div>
+    <div className="space-y-4">
+      {/* Drop zone */}
+      <label
+        className={`group relative flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-surface-soft px-6 py-6 text-center transition-colors hover:border-brand hover:bg-brand-soft/40 ${
+          uploading || photos.length >= MAX_PHOTOS
+            ? "pointer-events-none opacity-60"
+            : ""
+        }`}
+      >
         <input
           ref={inputRef}
           type="file"
@@ -108,45 +117,70 @@ export function PhotoUpload({ name }: { name: string }) {
           multiple
           disabled={uploading || photos.length >= MAX_PHOTOS}
           onChange={(e) => handleFiles(e.target.files)}
-          className="block w-full text-sm text-zinc-600 file:mr-4 file:rounded-md file:border file:border-zinc-300 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium hover:file:bg-zinc-50"
+          className="sr-only"
         />
-      </div>
+        {uploading ? (
+          <Loader2
+            className="h-7 w-7 animate-spin text-brand"
+            aria-hidden="true"
+          />
+        ) : (
+          <Upload
+            className="h-7 w-7 text-text-subtle transition-colors group-hover:text-brand"
+            aria-hidden="true"
+          />
+        )}
+        <p className="text-sm font-medium text-text">
+          {uploading
+            ? "Upload en cours…"
+            : photos.length >= MAX_PHOTOS
+              ? "Limite atteinte"
+              : "Glissez vos photos ici ou cliquez pour parcourir"}
+        </p>
+        <p className="text-xs text-text-subtle">
+          JPEG, PNG ou HEIC · Max 10 Mo par fichier · {slotsLeft} place
+          {slotsLeft > 1 ? "s" : ""} restante{slotsLeft > 1 ? "s" : ""}
+        </p>
+      </label>
 
-      {uploading && <p className="text-sm text-zinc-500">Upload en cours…</p>}
       {error && (
-        <p className="text-sm text-red-600" role="alert">
-          {error}
+        <p
+          role="alert"
+          className="flex items-start gap-2 rounded-md border border-danger-soft-border bg-danger-soft px-3 py-2 text-sm text-danger-soft-fg"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{error}</span>
         </p>
       )}
 
       {photos.length > 0 && (
-        <ul className="space-y-1 text-sm">
+        <ul className="space-y-2">
           {photos.map((p) => (
             <li
               key={p.key}
-              className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2"
+              className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-elevated px-3 py-2.5 text-sm shadow-xs"
             >
-              <span className="truncate text-zinc-700">
-                {p.name}{" "}
-                <span className="text-xs text-zinc-500">
-                  ({(p.size / 1024).toFixed(0)} Ko)
-                </span>
-              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-text">{p.name}</p>
+                <p className="text-xs tabular text-text-subtle">
+                  {(p.size / 1024).toFixed(0)} Ko
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => removePhoto(p.key)}
-                className="text-xs font-medium text-red-600 hover:underline"
+                aria-label={`Retirer ${p.name}`}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-text-subtle transition-colors hover:bg-danger-soft hover:text-danger"
               >
-                Retirer
+                <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </li>
           ))}
         </ul>
       )}
 
-      <p className="text-xs text-zinc-500">
-        {photos.length} / {MAX_PHOTOS} photo{photos.length > 1 ? "s" : ""}.
-        JPEG, PNG ou HEIC. Max 10 Mo par fichier.
+      <p className="text-xs tabular text-text-subtle">
+        {photos.length} / {MAX_PHOTOS}
       </p>
 
       {/* Hidden field — server reads `photoKeys` */}

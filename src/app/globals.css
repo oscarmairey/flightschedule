@@ -1,25 +1,277 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ============================================================
+   CAVOK design tokens
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  /* --font-sans is set on <html> via next/font (Inter) in layout.tsx */
+   Per .impeccable.md (Friendly Aeroclub / Light-first / Sky blue):
+
+   - Light is the canonical experience. Dark is a polite alternative
+     via @media (prefers-color-scheme: dark).
+   - Neutrals are warm — every gray is tinted toward 70° (warm yellow)
+     so the surface feels like sun-warmed paper, never cool zinc.
+   - Brand is a confident clear-sky blue at hue 232 — the "CAVOK
+     weather" itself. Used for primary actions, links, and own state.
+   - Semantics (success / warning / danger / info) are the discipline
+     of a Garmin G1000: each one paired with text or icon, never
+     decorative.
+   - All colors are OKLCH for perceptual uniformity.
+   ============================================================ */
+
+:root {
+  /* Surfaces — warm whites that breathe */
+  --cavok-surface: oklch(0.992 0.004 75);
+  --cavok-surface-elevated: #ffffff;
+  --cavok-surface-sunken: oklch(0.97 0.005 75);
+  --cavok-surface-soft: oklch(0.985 0.005 75);
+
+  /* Text — warm near-blacks, never pure */
+  --cavok-text: oklch(0.24 0.012 70);
+  --cavok-text-strong: oklch(0.16 0.012 70);
+  --cavok-text-muted: oklch(0.5 0.01 70);
+  --cavok-text-subtle: oklch(0.65 0.008 70);
+  --cavok-text-on-brand: oklch(0.99 0.003 75);
+
+  /* Borders */
+  --cavok-border: oklch(0.92 0.005 75);
+  --cavok-border-strong: oklch(0.85 0.008 75);
+  --cavok-border-subtle: oklch(0.95 0.004 75);
+
+  /* Brand — clear-sky blue */
+  --cavok-brand: oklch(0.6 0.155 232);
+  --cavok-brand-hover: oklch(0.52 0.165 232);
+  --cavok-brand-strong: oklch(0.44 0.17 232);
+  --cavok-brand-soft: oklch(0.965 0.025 232);
+  --cavok-brand-soft-fg: oklch(0.32 0.13 232);
+  --cavok-brand-soft-border: oklch(0.85 0.06 232);
+
+  /* Success — sun on grass, not generic Bootstrap green */
+  --cavok-success: oklch(0.55 0.13 158);
+  --cavok-success-soft: oklch(0.965 0.04 158);
+  --cavok-success-soft-fg: oklch(0.32 0.11 158);
+  --cavok-success-soft-border: oklch(0.85 0.07 158);
+
+  /* Warning — runway amber */
+  --cavok-warning: oklch(0.7 0.15 70);
+  --cavok-warning-soft: oklch(0.965 0.05 80);
+  --cavok-warning-soft-fg: oklch(0.36 0.11 60);
+  --cavok-warning-soft-border: oklch(0.85 0.1 70);
+
+  /* Danger — landing-light red */
+  --cavok-danger: oklch(0.58 0.18 25);
+  --cavok-danger-soft: oklch(0.96 0.03 25);
+  --cavok-danger-soft-fg: oklch(0.36 0.13 25);
+  --cavok-danger-soft-border: oklch(0.85 0.08 25);
+
+  /* Info — uses brand hue for cohesion */
+  --cavok-info-soft: oklch(0.96 0.025 232);
+  --cavok-info-soft-fg: oklch(0.32 0.12 232);
+  --cavok-info-soft-border: oklch(0.85 0.06 232);
+
+  /* Shadows — soft, warm-tinted */
+  --cavok-shadow-xs: 0 1px 2px 0 oklch(0.22 0.012 70 / 0.05);
+  --cavok-shadow-sm: 0 1px 3px 0 oklch(0.22 0.012 70 / 0.06),
+                     0 1px 2px -1px oklch(0.22 0.012 70 / 0.04);
+  --cavok-shadow-md: 0 6px 14px -4px oklch(0.22 0.012 70 / 0.09),
+                     0 2px 4px -2px oklch(0.22 0.012 70 / 0.05);
+  --cavok-shadow-lg: 0 20px 40px -16px oklch(0.22 0.012 70 / 0.16),
+                     0 6px 12px -6px oklch(0.22 0.012 70 / 0.08);
+  --cavok-shadow-brand: 0 8px 24px -12px oklch(0.6 0.155 232 / 0.45);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --cavok-surface: oklch(0.16 0.008 70);
+    --cavok-surface-elevated: oklch(0.205 0.008 70);
+    --cavok-surface-sunken: oklch(0.13 0.008 70);
+    --cavok-surface-soft: oklch(0.18 0.008 70);
+
+    --cavok-text: oklch(0.92 0.005 75);
+    --cavok-text-strong: oklch(0.985 0.003 75);
+    --cavok-text-muted: oklch(0.7 0.008 75);
+    --cavok-text-subtle: oklch(0.55 0.008 75);
+    --cavok-text-on-brand: oklch(0.16 0.008 232);
+
+    --cavok-border: oklch(0.28 0.008 70);
+    --cavok-border-strong: oklch(0.36 0.01 70);
+    --cavok-border-subtle: oklch(0.23 0.008 70);
+
+    --cavok-brand: oklch(0.72 0.15 232);
+    --cavok-brand-hover: oklch(0.8 0.14 232);
+    --cavok-brand-strong: oklch(0.86 0.12 232);
+    --cavok-brand-soft: oklch(0.26 0.06 232);
+    --cavok-brand-soft-fg: oklch(0.86 0.1 232);
+    --cavok-brand-soft-border: oklch(0.4 0.1 232);
+
+    --cavok-success: oklch(0.7 0.13 158);
+    --cavok-success-soft: oklch(0.26 0.05 158);
+    --cavok-success-soft-fg: oklch(0.85 0.1 158);
+    --cavok-success-soft-border: oklch(0.4 0.08 158);
+
+    --cavok-warning: oklch(0.78 0.15 70);
+    --cavok-warning-soft: oklch(0.27 0.06 70);
+    --cavok-warning-soft-fg: oklch(0.88 0.12 80);
+    --cavok-warning-soft-border: oklch(0.42 0.1 70);
+
+    --cavok-danger: oklch(0.7 0.18 25);
+    --cavok-danger-soft: oklch(0.27 0.05 25);
+    --cavok-danger-soft-fg: oklch(0.88 0.1 25);
+    --cavok-danger-soft-border: oklch(0.42 0.1 25);
+
+    --cavok-info-soft: oklch(0.26 0.06 232);
+    --cavok-info-soft-fg: oklch(0.85 0.1 232);
+    --cavok-info-soft-border: oklch(0.4 0.1 232);
+
+    --cavok-shadow-xs: 0 1px 2px 0 oklch(0 0 0 / 0.4);
+    --cavok-shadow-sm: 0 1px 3px 0 oklch(0 0 0 / 0.5),
+                       0 1px 2px -1px oklch(0 0 0 / 0.3);
+    --cavok-shadow-md: 0 6px 14px -4px oklch(0 0 0 / 0.55),
+                       0 2px 4px -2px oklch(0 0 0 / 0.35);
+    --cavok-shadow-lg: 0 20px 40px -16px oklch(0 0 0 / 0.6),
+                       0 6px 12px -6px oklch(0 0 0 / 0.4);
+    --cavok-shadow-brand: 0 8px 24px -12px oklch(0.72 0.15 232 / 0.5);
   }
 }
 
+/* ============================================================
+   Tailwind 4 theme bridge
+
+   Map CAVOK tokens to Tailwind utility class names so we can write
+   `bg-surface`, `text-text-muted`, `border-brand-soft-border`, etc.
+   The `inline` keyword tells Tailwind to inline var() references at
+   build time so dark-mode overrides on :root flow through.
+   ============================================================ */
+
+@theme inline {
+  /* Surfaces */
+  --color-surface: var(--cavok-surface);
+  --color-surface-elevated: var(--cavok-surface-elevated);
+  --color-surface-sunken: var(--cavok-surface-sunken);
+  --color-surface-soft: var(--cavok-surface-soft);
+
+  /* Text */
+  --color-text: var(--cavok-text);
+  --color-text-strong: var(--cavok-text-strong);
+  --color-text-muted: var(--cavok-text-muted);
+  --color-text-subtle: var(--cavok-text-subtle);
+  --color-text-on-brand: var(--cavok-text-on-brand);
+
+  /* Borders */
+  --color-border: var(--cavok-border);
+  --color-border-strong: var(--cavok-border-strong);
+  --color-border-subtle: var(--cavok-border-subtle);
+
+  /* Brand */
+  --color-brand: var(--cavok-brand);
+  --color-brand-hover: var(--cavok-brand-hover);
+  --color-brand-strong: var(--cavok-brand-strong);
+  --color-brand-soft: var(--cavok-brand-soft);
+  --color-brand-soft-fg: var(--cavok-brand-soft-fg);
+  --color-brand-soft-border: var(--cavok-brand-soft-border);
+
+  /* Semantics */
+  --color-success: var(--cavok-success);
+  --color-success-soft: var(--cavok-success-soft);
+  --color-success-soft-fg: var(--cavok-success-soft-fg);
+  --color-success-soft-border: var(--cavok-success-soft-border);
+
+  --color-warning: var(--cavok-warning);
+  --color-warning-soft: var(--cavok-warning-soft);
+  --color-warning-soft-fg: var(--cavok-warning-soft-fg);
+  --color-warning-soft-border: var(--cavok-warning-soft-border);
+
+  --color-danger: var(--cavok-danger);
+  --color-danger-soft: var(--cavok-danger-soft);
+  --color-danger-soft-fg: var(--cavok-danger-soft-fg);
+  --color-danger-soft-border: var(--cavok-danger-soft-border);
+
+  --color-info-soft: var(--cavok-info-soft);
+  --color-info-soft-fg: var(--cavok-info-soft-fg);
+  --color-info-soft-border: var(--cavok-info-soft-border);
+
+  /* Fonts — variable families injected by next/font/google */
+  --font-display: var(--font-display-family), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-sans-family), system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Radius scale — soft Apple Wallet feel */
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.5rem;
+
+  /* Shadows */
+  --shadow-xs: var(--cavok-shadow-xs);
+  --shadow-sm: var(--cavok-shadow-sm);
+  --shadow-md: var(--cavok-shadow-md);
+  --shadow-lg: var(--cavok-shadow-lg);
+  --shadow-brand: var(--cavok-shadow-brand);
+}
+
+/* ============================================================
+   Base styles
+   ============================================================ */
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--cavok-surface);
+  color: var(--cavok-text);
+  font-family: var(--font-sans-family), system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Display class — Bricolage Grotesque.
+   The characterful-but-grounded voice for headings, the wordmark,
+   and the hero HDV numerals. Variable: opsz auto, wdth normal. */
+.font-display {
+  font-family: var(--font-display-family), -apple-system, "Segoe UI", sans-serif;
+  font-optical-sizing: auto;
+  font-variation-settings: "wdth" 100;
+  letter-spacing: -0.025em;
+}
+
+/* Tabular numbers for HDV, durations, money, dates in tables. */
+.tabular {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reduced motion — strict respect per .impeccable.md */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Selection — brand-tinted */
+::selection {
+  background: var(--cavok-brand-soft);
+  color: var(--cavok-brand-soft-fg);
+}
+
+/* Focus rings — brand color, generous offset for daylight visibility */
+:focus-visible {
+  outline: 2px solid var(--cavok-brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Native form control reset where the OS pulls dark colors */
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
 }

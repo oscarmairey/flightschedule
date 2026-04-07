@@ -96,9 +96,35 @@ export function balanceTier(minutes: number): BalanceTier {
  * Tailwind class fragments for the three balance tiers. Used by Badge,
  * the dashboard balance card, and the admin pilots list. Keep all
  * tier-related styling in this single source of truth.
+ *
+ * These reference the design tokens defined in `src/app/globals.css`
+ * (`@theme inline { --color-success-soft … }`). Never inline raw color
+ * names here — every tier change must flow through the token layer.
  */
 export const BALANCE_TIER_CLASSES: Record<BalanceTier, string> = {
-  green: "bg-emerald-100 text-emerald-900 border-emerald-300",
-  amber: "bg-amber-100 text-amber-900 border-amber-300",
-  red: "bg-red-100 text-red-900 border-red-300",
+  green: "bg-success-soft text-success-soft-fg border-success-soft-border",
+  amber: "bg-warning-soft text-warning-soft-fg border-warning-soft-border",
+  red: "bg-danger-soft text-danger-soft-fg border-danger-soft-border",
+};
+
+/**
+ * Foreground colors for the three balance tiers — used when rendering
+ * the hero HDV numeral on the dashboard so the tier reads even without
+ * a badge wrapper. Pairs with `BALANCE_TIER_LABELS` for the
+ * "color + text" rule.
+ */
+export const BALANCE_TIER_FG_CLASSES: Record<BalanceTier, string> = {
+  green: "text-success",
+  amber: "text-warning",
+  red: "text-danger",
+};
+
+/**
+ * Human-readable French labels for the three tiers, paired with color
+ * everywhere a tier is shown so the meaning is never color-only.
+ */
+export const BALANCE_TIER_LABELS: Record<BalanceTier, string> = {
+  green: "Solde confortable",
+  amber: "Solde moyen",
+  red: "Solde faible",
 };

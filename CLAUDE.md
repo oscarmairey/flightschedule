@@ -39,6 +39,8 @@ For full product scope, user flows, and feature details, see [PRD.md](./PRD.md).
 - **Tailwind 4** uses CSS-first config (`@import "tailwindcss"` + `@theme inline { ... }` in `src/app/globals.css`). There is no `tailwind.config.js`.
 - **Prisma 7** requires either a driver adapter or `accelerateUrl` on `new PrismaClient()`. We use `PrismaPg` from `@prisma/adapter-pg`. Generated client lives at `src/generated/prisma/` (NOT `node_modules/.prisma/client`). Import the client from `@/generated/prisma/client` and enums from `@/generated/prisma/enums`. Configuration is in `prisma.config.ts`, NOT in the schema's `datasource` block.
 - **Auth.js v5** API differs from NextAuth v4. `auth()` from `@/auth` is the canonical way to read sessions in **server components and route handlers**. Augment `next-auth` and `next-auth/jwt` modules via `declare module` for typed sessions. The `next-auth/jwt` augmentation only works if you explicitly import a type from it (e.g. `import type { JWT } from "next-auth/jwt"`) in the same file.
+- **`trustHost: true` is required in `auth.config.ts` for production.** Without it, Auth.js v5 in production mode rejects any request whose `Host` header doesn't match `NEXTAUTH_URL` with `UntrustedHost`. We're behind Caddy + Cloudflare on the VPS — both terminate TLS and forward the canonical hostname, so the proxy chain is the security boundary, not the Host header. `unstable_update` is also re-exported from `@/auth` so the `/setup-password` server action can refresh the JWT (otherwise the proxy bounces the user back to `/setup-password` after a successful password change).
+- **Prisma client must be lazily constructed.** `src/lib/db.ts` exports `prisma` as a `Proxy` that defers `new PrismaClient(...)` until first property access. This is load-bearing: `next build` collects page data by importing every route file, including `/api/webhooks/stripe` which transitively imports `@/lib/db`. Constructing at module load would throw `DATABASE_URL is not set` during the build. The lazy proxy fixes that AND caches in a module-level variable so production gets a true singleton (otherwise you exhaust Postgres connections — see git history).
 - **Auth must be split into two files** because of the edge runtime:
   - `src/auth.config.ts` — edge-safe, NO Prisma/bcrypt imports. Holds session strategy, pages, and JWT/session callbacks. Imported by `src/proxy.ts`.
   - `src/auth.ts` — Node runtime, imports Prisma + bcrypt. Spreads `authConfig` and adds the Credentials provider whose `authorize()` queries the database.
@@ -96,7 +98,9 @@ If any step fails, roll back the entire transaction. Never half-book.
 - **Write flow:** client requests `/api/upload/presign` → server checks the user owns the flight → server generates presigned PUT URL (15 min expiry, scoped per object key) → browser PUTs to R2 → client submits flight with R2 object keys.
 - **Read flow:** when rendering a flight that has photos, the server (not the client) generates presigned GET URLs (15 min expiry) and passes them to the page. The user is authorized server-side first (pilot owns the flight, OR user is admin). Never return photo URLs in any API endpoint that doesn't first authorize the caller.
 - Flight record stores `photos: text[]` (array of R2 object keys, e.g. `flights/{flight_id}/photo_1.jpg` — never URLs).
-- HEIC must be converted to JPEG on upload (client-side).
+- **Server is the SOLE source of object keys.** Use `makePhotoKey(userId)` from `src/lib/r2.ts`. Flight submit re-validates each key with `isPhotoKeyOwnedBy()` and HEADs each one in R2 to confirm the upload landed.
+- HEIC: V1 accepts `image/heic` mime-type as-is. Modern iOS Safari typically serves JPEG from the camera roll, so client-side conversion is deferred until proven needed on a real iPhone.
+- **CORS is REQUIRED for the cross-origin browser → R2 PUT.** R2 buckets ship with no CORS policy by default. The policy must be set via the **Cloudflare REST API**, not the S3 `PutBucketCors` API — R2 access keys lack `s3:PutBucketCors` and return `AccessDenied`. Use `scripts/r2-cors-setup.ts` (idempotent, run once per bucket). Allowed origins are pinned to `https://cavok.oscarmairey.com` plus localhost variants.
 - Limits: max 5 photos per flight, max 10 MB per photo.
 - Bucket: `cavok-flight-photos`, region WEUR. S3 endpoint is `R2_ENDPOINT` in `.env`; access keys are scoped to that single bucket (read+write only).
 
@@ -116,8 +120,10 @@ If any step fails, roll back the entire transaction. Never half-book.
 ### 9. Flight validation lifecycle
 
 - New flights start as `pending`.
-- Admin can: `validate` (locks the entry forever), `edit` (corrects duration → new reconciliation Transaction → still pending until validated), or `reject` (REVERTS all HDV changes including the original reservation debit, and flags the entry).
-- **Validated flights are immutable.** No edits, no reversals. If a validated flight is wrong, the admin must use a manual `admin_adjustment` Transaction with a clear reason.
+- Admin can: `validate` (locks the entry forever) **or** `edit` (corrects duration → reverses old reconciliation + applies new one in the same DB transaction → flight stays pending until explicitly validated).
+- **No `reject` action.** This is a deliberate deviation from PRD §3.3.4 (per operator decision D4): admins cannot reject pilot flight entries, only validate or edit. The `FlightStatus.REJECTED` enum value still exists in the schema as dead code awaiting a V1.1 cleanup migration. If you find yourself implementing a reject path, **stop and confirm with the operator first** — they will push back.
+- **Validated flights are immutable.** No edits, no reversals. If a validated flight is wrong, the admin must use a manual `admin_adjustment` Transaction with a clear reason from `/admin/pilots/[id]`.
+- **Cancellation belongs to reservations, not flights.** A pilot or admin can cancel a *reservation* (which refunds the HDV); they cannot cancel or reject a *flight*. Don't confuse the two surfaces.
 
 ### 10. Soft delete users only
 
@@ -209,7 +215,21 @@ This VPS already runs other apps under the same Caddy. Cavok deliberately uses n
 
 If you change these, also update `.env` (`DATABASE_URL`) and the Caddyfile entry for `cavok.oscarmairey.com`.
 
-### Local development (Postgres in Docker, Next.js on host)
+### Docker is production-only — no `Dockerfile.dev`
+
+The `Dockerfile` is a multi-stage **production** build: deps → builder (`prisma generate` + `next build` with `output: 'standalone'`) → runner (`node server.js`, non-root, ~50 MB final image). There is no dev-mode Dockerfile and no bind-mount of source. The single deploy command is:
+
+```bash
+docker compose up -d --build     # rebuilds image, recreates containers
+                                 # web → 0.0.0.0:6000, db → 127.0.0.1:5442
+docker compose logs -f web       # tail server.js logs
+```
+
+**Why production-only:** dev mode in containers caused painful collisions (a stale `.next/dev/lock` from a host `next dev` getting bind-mounted into the container blocking the container's own `next dev`). The operator's strong preference is that one command sets up everything cleanly. If you need hot-reload during local iteration, run `pnpm dev` directly on the host — separately from the Docker stack.
+
+The `pnpm.supportedArchitectures` block in `package.json` forces pnpm to fetch BOTH glibc (host = Ubuntu) and musl (container = Alpine) variants of `next-swc` so the same `pnpm install` works for both.
+
+### Local Postgres only (host Next.js dev)
 
 ```bash
 docker compose up -d db          # start Postgres (bound to 127.0.0.1:5442)
@@ -217,14 +237,6 @@ pnpm install                     # one-time
 pnpm db:migrate                  # apply migrations
 pnpm db:seed                     # create the bootstrap admin
 pnpm dev                         # Next.js on http://localhost:3000
-```
-
-### Full Docker (Postgres + Next.js both in containers)
-
-```bash
-docker compose up -d             # builds web image on first run, runs both
-                                 # web → 0.0.0.0:6000, db → 127.0.0.1:5442
-docker compose logs -f web       # tail Next.js logs
 ```
 
 Public URL via Caddy + Cloudflare: **https://cavok.oscarmairey.com**
@@ -284,4 +296,13 @@ Public URL via Caddy + Cloudflare: **https://cavok.oscarmairey.com**
 - Cloudflare R2 bucket `cavok-flight-photos` (private), S3 access keys in `.env`
 - GitHub repo: `oscarmairey/cavok` (private)
 
-**What's NOT built yet:** every feature page beyond the placeholders, Stripe Checkout/webhook, R2 upload/download presigning, calendar/booking UI, flight entry, admin panels, pilot CRUD. See PRD §3 for the spec and the suggested implementation order.
+**V1 fully built and deployed as of commit `4544dc8`.** Live behind Caddy at https://cavok.oscarmairey.com via the production multi-stage Docker image. All 21 routes registered; Stripe Checkout end-to-end (test mode) verified with a successful 5h credit; admin pilot CRUD, calendar + atomic booking, flight entry with R2 photo upload (CORS configured), admin validation queue, and admin overview all live.
+
+**One-shot setup scripts** (operator runs once per environment, all idempotent):
+- `corepack pnpm tsx scripts/stripe-setup.ts` — creates Products + Prices + webhook endpoint, prints env block to paste into `.env`
+- `corepack pnpm tsx scripts/r2-cors-setup.ts` — applies the CORS policy to the R2 bucket via the Cloudflare REST API
+- `scripts/backup-db.sh` — nightly encrypted Postgres dump → R2 (cron on the host)
+
+**Operator preferences worth respecting** (these came up during V1 implementation):
+- When credentials are present in `.env`, USE them to do setup work autonomously. Don't punt to "the operator runs `stripe listen`" — the API works.
+- Docker = production build. Never propose dev mode in containers.

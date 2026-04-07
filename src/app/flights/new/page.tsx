@@ -1,6 +1,6 @@
 // CAVOK — /flights/new — pilot flight entry form.
 
-import { redirect } from "next/navigation";
+import { PencilLine } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
@@ -11,6 +11,7 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Ca
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
+import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
 import { PhotoUpload } from "@/components/flights/PhotoUpload";
 import { submitFlight } from "./actions";
@@ -41,12 +42,19 @@ export default async function NewFlightPage({
   if (candidates.length === 0) {
     return (
       <AppShell>
-        <div className="mx-auto max-w-2xl px-4 py-8">
-          <h1 className="text-3xl font-semibold tracking-tight">{COPY.nav.newFlight}</h1>
-          <Card className="mt-6">
-            <p className="text-sm text-zinc-600">
-              Aucune réservation en attente de saisie. Réservez d'abord un créneau,
-              effectuez votre vol, puis revenez ici pour le saisir.
+        <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6">
+          <p className="flex items-center gap-2 text-sm font-medium uppercase tracking-[0.14em] text-text-subtle">
+            <PencilLine className="h-4 w-4" aria-hidden="true" />
+            {COPY.nav.newFlight}
+          </p>
+          <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
+            Aucune saisie en attente
+          </h1>
+          <Card tone="sunken" className="mt-8">
+            <p className="text-sm leading-relaxed text-text-muted">
+              Pour saisir un vol, vous devez avoir une réservation passée
+              sans vol attaché. Réservez d&apos;abord un créneau, effectuez
+              votre vol, puis revenez ici.
             </p>
           </Card>
         </div>
@@ -79,21 +87,25 @@ export default async function NewFlightPage({
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-2xl px-4 py-8 space-y-6">
-        <header>
-          <h1 className="text-3xl font-semibold tracking-tight">{COPY.nav.newFlight}</h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Saisissez les informations de votre vol et joignez les photos du carnet
-            de bord papier.
+      <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 sm:py-12">
+        <header className="mb-10">
+          <p className="flex items-center gap-2 text-sm font-medium uppercase tracking-[0.14em] text-text-subtle">
+            <PencilLine className="h-4 w-4" aria-hidden="true" />
+            {COPY.nav.newFlight}
+          </p>
+          <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
+            Saisie de vol
+          </h1>
+          <p className="mt-3 max-w-xl text-base leading-relaxed text-text-muted">
+            Reportez les informations de votre vol et joignez les photos du
+            carnet de bord papier. L&apos;administrateur validera la saisie
+            sous peu.
           </p>
         </header>
 
         {errorBanner && (
-          <div
-            role="alert"
-            className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900"
-          >
-            {errorBanner}
+          <div className="mb-6">
+            <Alert tone="error">{errorBanner}</Alert>
           </div>
         )}
 
@@ -105,42 +117,42 @@ export default async function NewFlightPage({
                 Sélectionnez la réservation correspondant au vol effectué.
               </CardDescription>
             </CardHeader>
-            <div className="space-y-2">
-              <select
-                name="reservationId"
-                defaultValue={preselected.id}
-                required
-                className="block w-full min-h-11 rounded-md border border-zinc-300 px-3 py-2 text-base shadow-sm focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900"
-              >
-                {candidates.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {formatDateFR(r.startsAt)} ·{" "}
-                    {new Intl.DateTimeFormat("fr-FR", {
-                      timeZone: TZ,
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }).format(r.startsAt)}
-                    {" – "}
-                    {new Intl.DateTimeFormat("fr-FR", {
-                      timeZone: TZ,
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }).format(r.endsAt)}
-                    {" · "}
-                    {formatHHMM(r.durationMin)}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <select
+              name="reservationId"
+              defaultValue={preselected.id}
+              required
+              className="block w-full min-h-11 rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand focus:outline-none"
+            >
+              {candidates.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {formatDateFR(r.startsAt)} ·{" "}
+                  {new Intl.DateTimeFormat("fr-FR", {
+                    timeZone: TZ,
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }).format(r.startsAt)}
+                  {" – "}
+                  {new Intl.DateTimeFormat("fr-FR", {
+                    timeZone: TZ,
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }).format(r.endsAt)}
+                  {" · "}
+                  {formatHHMM(r.durationMin)}
+                </option>
+              ))}
+            </select>
           </Card>
 
           <Card>
             <CardHeader>
               <CardTitle>Vol</CardTitle>
             </CardHeader>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-5 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="depAirport" required>Aéroport départ (OACI)</Label>
+                <Label htmlFor="depAirport" required>
+                  Aéroport départ (OACI)
+                </Label>
                 <Input
                   id="depAirport"
                   name="depAirport"
@@ -149,11 +161,13 @@ export default async function NewFlightPage({
                   maxLength={4}
                   list="airports-list"
                   placeholder="LFPN"
-                  className="uppercase"
+                  className="uppercase font-display tabular text-lg"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="arrAirport" required>Aéroport arrivée (OACI)</Label>
+                <Label htmlFor="arrAirport" required>
+                  Aéroport arrivée (OACI)
+                </Label>
                 <Input
                   id="arrAirport"
                   name="arrAirport"
@@ -162,7 +176,7 @@ export default async function NewFlightPage({
                   maxLength={4}
                   list="airports-list"
                   placeholder="LFPN"
-                  className="uppercase"
+                  className="uppercase font-display tabular text-lg"
                 />
               </div>
               <datalist id="airports-list">
@@ -174,7 +188,9 @@ export default async function NewFlightPage({
               </datalist>
 
               <div className="space-y-2">
-                <Label htmlFor="durationStr" required>Durée réelle</Label>
+                <Label htmlFor="durationStr" required>
+                  Durée réelle
+                </Label>
                 <Input
                   id="durationStr"
                   name="durationStr"
@@ -182,13 +198,28 @@ export default async function NewFlightPage({
                   required
                   inputMode="numeric"
                   placeholder="ex : 1h30"
+                  className="tabular"
                 />
-                <p className="text-xs text-zinc-500">
-                  HH:MM ou minutes (ex : <code>1h30</code>, <code>1:30</code>, <code>90</code>)
+                <p className="text-xs text-text-subtle">
+                  HH:MM ou minutes (ex&nbsp;:{" "}
+                  <code className="rounded bg-surface-sunken px-1 py-0.5 tabular">
+                    1h30
+                  </code>
+                  ,{" "}
+                  <code className="rounded bg-surface-sunken px-1 py-0.5 tabular">
+                    1:30
+                  </code>
+                  ,{" "}
+                  <code className="rounded bg-surface-sunken px-1 py-0.5 tabular">
+                    90
+                  </code>
+                  )
                 </p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="landings" required>Atterrissages</Label>
+                <Label htmlFor="landings" required>
+                  Atterrissages
+                </Label>
                 <Input
                   id="landings"
                   name="landings"
@@ -198,6 +229,7 @@ export default async function NewFlightPage({
                   defaultValue={1}
                   min={1}
                   max={99}
+                  className="tabular"
                 />
               </div>
 
@@ -208,6 +240,7 @@ export default async function NewFlightPage({
                   name="engineStart"
                   type="time"
                   step="60"
+                  className="tabular"
                 />
               </div>
               <div className="space-y-2">
@@ -217,6 +250,7 @@ export default async function NewFlightPage({
                   name="engineStop"
                   type="time"
                   step="60"
+                  className="tabular"
                 />
               </div>
 
@@ -227,7 +261,7 @@ export default async function NewFlightPage({
                   name="remarks"
                   rows={3}
                   maxLength={2000}
-                  className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-base shadow-sm focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900"
+                  className="block w-full rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand focus:outline-none"
                 />
               </div>
             </div>
@@ -237,15 +271,17 @@ export default async function NewFlightPage({
             <CardHeader>
               <CardTitle>Photos du carnet de bord</CardTitle>
               <CardDescription>
-                Joignez 1 à 5 photos. Les fichiers sont uploadés directement sur le
-                stockage privé Cloudflare R2 — le serveur ne voit jamais les bytes.
+                1 à 5 photos. Uploadées directement sur le stockage privé
+                Cloudflare R2 — le serveur ne voit jamais les fichiers.
               </CardDescription>
             </CardHeader>
             <PhotoUpload name="photoKeys" />
           </Card>
 
           <div className="flex justify-end">
-            <Button type="submit">Enregistrer le vol</Button>
+            <Button type="submit" size="lg">
+              Enregistrer le vol
+            </Button>
           </div>
         </form>
       </div>

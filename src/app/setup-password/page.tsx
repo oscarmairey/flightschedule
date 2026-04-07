@@ -14,6 +14,7 @@
 //   5. Redirect to /dashboard
 
 import { redirect } from "next/navigation";
+import Image from "next/image";
 import { auth, unstable_update } from "@/auth";
 import { prisma } from "@/lib/db";
 import { hash } from "bcryptjs";
@@ -22,6 +23,7 @@ import { COPY } from "@/lib/copy";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { Button } from "@/components/ui/Button";
+import { Alert } from "@/components/ui/Alert";
 
 async function setupPasswordAction(formData: FormData) {
   "use server";
@@ -84,20 +86,39 @@ export default async function SetupPasswordPage({
           : null;
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4 py-10">
-      <div className="w-full max-w-sm space-y-6">
-        <header className="text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {COPY.auth.setupTitle}
-          </h1>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-            {COPY.auth.setupIntro}
-          </p>
-        </header>
+    <main className="relative flex min-h-screen items-center justify-center bg-surface px-6 py-12">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+      >
+        <div className="absolute -top-32 right-0 h-[420px] w-[420px] rounded-full bg-brand-soft opacity-60 blur-3xl" />
+      </div>
+
+      <div className="relative w-full max-w-md">
+        <div className="mb-8 flex items-center gap-3">
+          <Image
+            src="/logo.png"
+            alt=""
+            width={44}
+            height={44}
+            className="h-11 w-11 rounded-lg ring-1 ring-border-subtle shadow-xs"
+            priority
+          />
+          <span className="font-display text-2xl font-semibold tracking-tight text-text-strong">
+            CAVOK
+          </span>
+        </div>
+
+        <h1 className="font-display text-3xl font-semibold tracking-tight text-text-strong sm:text-4xl">
+          {COPY.auth.setupTitle}
+        </h1>
+        <p className="mt-3 max-w-sm text-base leading-relaxed text-text-muted">
+          {COPY.auth.setupIntro}
+        </p>
 
         <form
           action={setupPasswordAction}
-          className="space-y-4 rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
+          className="mt-10 space-y-5 rounded-2xl border border-border bg-surface-elevated p-7 shadow-lg"
         >
           <div className="space-y-2">
             <Label htmlFor="newPassword" required>
@@ -127,17 +148,14 @@ export default async function SetupPasswordPage({
             />
           </div>
 
-          {errorMessage && (
-            <p className="text-sm text-red-600" role="alert">
-              {errorMessage}
-            </p>
-          )}
+          {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
 
-          <p className="text-xs text-zinc-500">
-            10 caractères minimum, avec au moins une majuscule, une minuscule et un chiffre.
+          <p className="rounded-md bg-surface-sunken px-3 py-2 text-xs leading-relaxed text-text-muted">
+            10 caractères minimum, dont au moins une majuscule, une minuscule
+            et un chiffre.
           </p>
 
-          <Button type="submit" fullWidth>
+          <Button type="submit" fullWidth size="lg">
             {COPY.auth.setupSubmit}
           </Button>
         </form>
