@@ -1,0 +1,342 @@
+// FlightSchedule — /admin/tarifs — Stripe Package CRUD. V2.
+//
+// Lists active and archived packages with create/edit/archive forms.
+// Every mutation syncs to the Stripe Product/Price API in the same
+// server action call.
+
+import { Tag, Plus, Trash2, RotateCcw } from "lucide-react";
+import { requireAdmin } from "@/lib/session";
+import { prisma } from "@/lib/db";
+import { COPY } from "@/lib/copy";
+import { formatHHMM } from "@/lib/duration";
+import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Label } from "@/components/ui/Label";
+import { Alert } from "@/components/ui/Alert";
+import { Badge } from "@/components/ui/Badge";
+import { AppShell } from "@/components/AppShell";
+import {
+  createPackage,
+  updatePackage,
+  archivePackage,
+  unarchivePackage,
+} from "./actions";
+
+function formatEUR(cents: number): string {
+  return (cents / 100).toLocaleString("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+  });
+}
+
+export default async function AdminTarifsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    error?: string;
+    msg?: string;
+    created?: string;
+    updated?: string;
+    archived?: string;
+    unarchived?: string;
+  }>;
+}) {
+  await requireAdmin();
+  const sp = await searchParams;
+
+  const [active, archived] = await Promise.all([
+    prisma.package.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.package.findMany({
+      where: { isActive: false },
+      orderBy: { updatedAt: "desc" },
+    }),
+  ]);
+
+  const banner =
+    sp.created === "1"
+      ? { tone: "success" as const, msg: "Forfait créé." }
+      : sp.updated === "1"
+        ? { tone: "success" as const, msg: "Forfait mis à jour." }
+        : sp.archived === "1"
+          ? { tone: "success" as const, msg: "Forfait archivé." }
+          : sp.unarchived === "1"
+            ? { tone: "success" as const, msg: "Forfait réactivé." }
+            : sp.error === "stripe"
+              ? {
+                  tone: "error" as const,
+                  msg: `Erreur Stripe : ${sp.msg ?? "détails indisponibles"}`,
+                }
+              : sp.error === "invalid"
+                ? { tone: "error" as const, msg: COPY.errors.invalidInput }
+                : null;
+
+  return (
+    <AppShell>
+      <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-12">
+        <header className="mb-10">
+          <p className="flex items-center gap-2 text-sm font-medium uppercase tracking-[0.14em] text-text-subtle">
+            <Tag className="h-4 w-4" aria-hidden="true" />
+            {COPY.nav.adminTarifs}
+          </p>
+          <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
+            Forfaits HDV
+          </h1>
+          <p className="mt-3 max-w-xl text-base text-text-muted">
+            Synchronisé avec Stripe — chaque modification crée un nouveau
+            tarif (les prix Stripe sont immuables). Les forfaits archivés
+            restent dans l&apos;historique des achats.
+          </p>
+        </header>
+
+        {banner && (
+          <div className="mb-6">
+            <Alert tone={banner.tone}>{banner.msg}</Alert>
+          </div>
+        )}
+
+        {/* Create form */}
+        <Card className="mb-12">
+          <CardHeader>
+            <CardTitle>Nouveau forfait</CardTitle>
+            <CardDescription>
+              Le prix est en EUR (HT). Stripe Tax appliquera la TVA française
+              à 20 % au paiement.
+            </CardDescription>
+          </CardHeader>
+          <form action={createPackage} className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="new-name" required>
+                Nom
+              </Label>
+              <Input
+                id="new-name"
+                name="name"
+                type="text"
+                required
+                maxLength={120}
+                placeholder="Ex : Standard"
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="new-description">Description</Label>
+              <Input
+                id="new-description"
+                name="description"
+                type="text"
+                maxLength={500}
+                placeholder="facultatif"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-priceEUR" required>
+                Prix HT (€)
+              </Label>
+              <Input
+                id="new-priceEUR"
+                name="priceEUR"
+                type="number"
+                required
+                min={0}
+                step="0.01"
+                inputMode="decimal"
+                className="tabular"
+                placeholder="900"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-hdvMinutes" required>
+                HDV (minutes)
+              </Label>
+              <Input
+                id="new-hdvMinutes"
+                name="hdvMinutes"
+                type="number"
+                required
+                min={15}
+                step={15}
+                inputMode="numeric"
+                className="tabular"
+                placeholder="600"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-sortOrder">Ordre d&apos;affichage</Label>
+              <Input
+                id="new-sortOrder"
+                name="sortOrder"
+                type="number"
+                min={0}
+                defaultValue={0}
+                inputMode="numeric"
+                className="tabular"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Button type="submit">
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Créer le forfait
+              </Button>
+            </div>
+          </form>
+        </Card>
+
+        {/* Active packages */}
+        <section className="mb-12">
+          <h2 className="font-display mb-4 text-2xl font-semibold tracking-tight text-text-strong">
+            Forfaits actifs ({active.length})
+          </h2>
+          {active.length === 0 ? (
+            <Card tone="sunken">
+              <p className="text-sm text-text-muted">
+                Aucun forfait actif. Créez-en un ci-dessus.
+              </p>
+            </Card>
+          ) : (
+            <ul className="space-y-4">
+              {active.map((pkg) => (
+                <li key={pkg.id}>
+                  <Card>
+                    <form action={updatePackage} className="grid gap-4 sm:grid-cols-2">
+                      <input type="hidden" name="id" value={pkg.id} />
+                      <div className="sm:col-span-2 flex flex-wrap items-baseline justify-between gap-3">
+                        <div>
+                          <h3 className="font-display text-lg font-semibold text-text-strong">
+                            {pkg.name}
+                          </h3>
+                          <p className="text-xs text-text-subtle">
+                            {formatEUR(pkg.priceCentsHT)} HT ·{" "}
+                            {formatHHMM(pkg.hdvMinutes)}
+                          </p>
+                        </div>
+                        <Badge variant="success" size="sm">
+                          Actif
+                        </Badge>
+                      </div>
+                      <div className="space-y-1.5 sm:col-span-2">
+                        <Label htmlFor={`name-${pkg.id}`} required>
+                          Nom
+                        </Label>
+                        <Input
+                          id={`name-${pkg.id}`}
+                          name="name"
+                          type="text"
+                          required
+                          maxLength={120}
+                          defaultValue={pkg.name}
+                        />
+                      </div>
+                      <div className="space-y-1.5 sm:col-span-2">
+                        <Label htmlFor={`desc-${pkg.id}`}>Description</Label>
+                        <Input
+                          id={`desc-${pkg.id}`}
+                          name="description"
+                          type="text"
+                          maxLength={500}
+                          defaultValue={pkg.description ?? ""}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`price-${pkg.id}`} required>
+                          Prix HT (€)
+                        </Label>
+                        <Input
+                          id={`price-${pkg.id}`}
+                          name="priceEUR"
+                          type="number"
+                          required
+                          min={0}
+                          step="0.01"
+                          inputMode="decimal"
+                          className="tabular"
+                          defaultValue={(pkg.priceCentsHT / 100).toString()}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`hdv-${pkg.id}`} required>
+                          HDV (minutes)
+                        </Label>
+                        <Input
+                          id={`hdv-${pkg.id}`}
+                          name="hdvMinutes"
+                          type="number"
+                          required
+                          min={15}
+                          step={15}
+                          inputMode="numeric"
+                          className="tabular"
+                          defaultValue={pkg.hdvMinutes}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`sort-${pkg.id}`}>
+                          Ordre d&apos;affichage
+                        </Label>
+                        <Input
+                          id={`sort-${pkg.id}`}
+                          name="sortOrder"
+                          type="number"
+                          min={0}
+                          inputMode="numeric"
+                          className="tabular"
+                          defaultValue={pkg.sortOrder}
+                        />
+                      </div>
+                      <div className="sm:col-span-2 flex flex-wrap gap-2">
+                        <Button type="submit">Enregistrer</Button>
+                      </div>
+                    </form>
+                    <form action={archivePackage} className="mt-4 border-t border-border-subtle pt-4">
+                      <input type="hidden" name="id" value={pkg.id} />
+                      <Button type="submit" variant="ghost" size="sm">
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        Archiver ce forfait
+                      </Button>
+                    </form>
+                  </Card>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* Archived packages */}
+        {archived.length > 0 && (
+          <section>
+            <h2 className="font-display mb-4 text-2xl font-semibold tracking-tight text-text-strong">
+              Forfaits archivés ({archived.length})
+            </h2>
+            <ul className="divide-y divide-border-subtle border-y border-border-subtle">
+              {archived.map((pkg) => (
+                <li
+                  key={pkg.id}
+                  className="flex flex-wrap items-center justify-between gap-3 py-4 opacity-70"
+                >
+                  <div>
+                    <p className="font-display text-base font-semibold text-text-strong">
+                      {pkg.name}
+                    </p>
+                    <p className="text-xs tabular text-text-subtle">
+                      {formatEUR(pkg.priceCentsHT)} HT ·{" "}
+                      {formatHHMM(pkg.hdvMinutes)}
+                    </p>
+                  </div>
+                  <form action={unarchivePackage}>
+                    <input type="hidden" name="id" value={pkg.id} />
+                    <Button type="submit" variant="secondary" size="sm">
+                      <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                      Réactiver
+                    </Button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+    </AppShell>
+  );
+}

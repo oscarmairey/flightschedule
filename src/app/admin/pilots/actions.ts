@@ -1,4 +1,4 @@
-// FlySchedule — admin pilot management server actions.
+// FlightSchedule — admin pilot management server actions.
 //
 // Every action: requireAdmin() FIRST, Zod-validate input, wrap mutations
 // in prisma.$transaction when they touch HDV. The HDV chokepoint

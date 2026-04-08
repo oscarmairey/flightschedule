@@ -1,11 +1,20 @@
-// FlySchedule — reservation booking and cancellation.
+// FlightSchedule — reservation booking and cancellation.
+//
+// ════════════════════════════════════════════════════════════════════
+// V2 — RESERVATIONS ARE PURE SCHEDULING BLOCKS
+// ════════════════════════════════════════════════════════════════════
+//
+// Bookings have no HDV impact. They exist only to prevent overlap and
+// to respect availability exceptions. Cancellation is a status update —
+// nothing to refund. The HDV ledger only moves at flight submission
+// time (FLIGHT_DEBIT). See CLAUDE.md rules #3, #3b, #4, #7.
 //
 // ════════════════════════════════════════════════════════════════════
 // HALF-OPEN INTERVAL CONVENTION
 // ════════════════════════════════════════════════════════════════════
 //
 // Reservations are stored as `[startsAt, endsAt)`. Adjacent slots
-// (e.g. 10:00–11:00 and 11:00–12:00) DO NOT collide. The overlap
+// (e.g. 09:00–12:00 and 12:00–15:00) DO NOT collide. The overlap
 // check is therefore:
 //
 //     existing.startsAt < requested.endsAt
@@ -19,22 +28,23 @@
 // ATOMICITY (architectural rule #3)
 // ════════════════════════════════════════════════════════════════════
 //
-// `bookReservation` must run in a single Postgres transaction with
+// `bookReservation` runs in a single Postgres transaction with
 // SERIALIZABLE isolation. We retry up to 3 times on Postgres serialization
 // failures (Prisma error P2034). At 5–12 users this never actually retries.
+// The transaction now contains: overlap check + INSERT Reservation. The
+// availability check runs on the singleton client outside the tx.
 
 import { prisma } from "@/lib/db";
-import { applyHdvMutation, InsufficientBalanceError } from "@/lib/hdv";
 import { isWithinAvailability } from "@/lib/availability";
 
-// Booking constraint defaults — see PRD §3.2.3 (PRD doesn't specify
-// these, so we lock in sensible V1 defaults that the operator can
-// adjust here without touching every server action).
+// Booking constraint defaults — V2 uses 3-hour blocks per the calendar
+// grid. Min = 1 block (3h), max = 30 days (multi-day reservations are
+// supported for long trips), granularity = 3h.
 export const RESERVATION_LIMITS = {
-  MIN_DURATION_MIN: 30,
-  MAX_DURATION_MIN: 8 * 60,
+  MIN_DURATION_MIN: 3 * 60,
+  MAX_DURATION_MIN: 30 * 24 * 60,
   /** Reservation start times must align to multiples of this many minutes. */
-  SLOT_GRANULARITY_MIN: 30,
+  SLOT_GRANULARITY_MIN: 3 * 60,
 } as const;
 
 export class OverlapError extends Error {
@@ -80,18 +90,16 @@ export type BookReservationResult = {
   startsAt: Date;
   endsAt: Date;
   durationMin: number;
-  newBalanceMin: number;
 };
 
 /**
  * Atomically book a reservation. Throws on any precondition failure.
  *
- * Steps inside the serializable transaction:
+ * V2 — no HDV impact. Steps inside the serializable transaction:
  *   1. Validate window shape (duration, granularity, sanity)
- *   2. Validate the window falls inside availability
+ *   2. Validate the window falls outside any unavailability exception
  *   3. Reject if any CONFIRMED reservation overlaps
  *   4. INSERT Reservation
- *   5. applyHdvMutation(RESERVATION_DEBIT, -durationMin)
  */
 export async function bookReservation(
   input: BookReservationInput,
@@ -105,12 +113,12 @@ export async function bookReservation(
     durationMin > RESERVATION_LIMITS.MAX_DURATION_MIN
   ) {
     throw new InvalidWindowError(
-      `Durée hors limites (entre ${RESERVATION_LIMITS.MIN_DURATION_MIN} min et ${RESERVATION_LIMITS.MAX_DURATION_MIN} min).`,
+      `Durée hors limites (entre ${RESERVATION_LIMITS.MIN_DURATION_MIN / 60} h et ${RESERVATION_LIMITS.MAX_DURATION_MIN / 60 / 24} jours).`,
     );
   }
   if (durationMin % RESERVATION_LIMITS.SLOT_GRANULARITY_MIN !== 0) {
     throw new InvalidWindowError(
-      `Durée non alignée sur ${RESERVATION_LIMITS.SLOT_GRANULARITY_MIN} minutes.`,
+      `Durée non alignée sur des blocs de ${RESERVATION_LIMITS.SLOT_GRANULARITY_MIN / 60} h.`,
     );
   }
 
@@ -142,18 +150,9 @@ export async function bookReservation(
               startsAt: input.startsAtUtc,
               endsAt: input.endsAtUtc,
               durationMin,
-              hdvDeductedMin: durationMin,
               status: "CONFIRMED",
             },
             select: { id: true, startsAt: true, endsAt: true, durationMin: true },
-          });
-
-          const result = await applyHdvMutation(tx, {
-            userId: input.userId,
-            type: "RESERVATION_DEBIT",
-            amountMin: -durationMin,
-            reservationId: created.id,
-            performedById: input.userId,
           });
 
           return {
@@ -161,7 +160,6 @@ export async function bookReservation(
             startsAt: created.startsAt,
             endsAt: created.endsAt,
             durationMin: created.durationMin,
-            newBalanceMin: result.newBalanceMin,
           };
         },
         { isolationLevel: "Serializable", maxWait: 5000, timeout: 10000 },
@@ -169,11 +167,7 @@ export async function bookReservation(
     } catch (err) {
       lastErr = err;
       // Re-throw business errors immediately — only retry on serialization failure.
-      if (
-        err instanceof OverlapError ||
-        err instanceof InsufficientBalanceError ||
-        err instanceof InvalidWindowError
-      ) {
+      if (err instanceof OverlapError || err instanceof InvalidWindowError) {
         throw err;
       }
       // Prisma serialization failure → retry
@@ -194,26 +188,36 @@ export type CancelReservationInput = {
   isAdmin: boolean;
 };
 
-export type CancelReservationResult = {
-  refundedMin: number;
-  newBalanceMin: number;
-};
+export class AutoCreatedReservationError extends Error {
+  constructor() {
+    super(
+      "Cette réservation a été créée automatiquement par un vol et ne peut pas être annulée. Le vol fait foi.",
+    );
+    this.name = "AutoCreatedReservationError";
+  }
+}
 
 /**
- * Cancel a reservation and refund the original HDV deduction.
+ * Cancel a reservation. V2 — pure status update, no HDV impact.
  *
  * Pilots may only cancel their own reservations, and only ≥24h before
- * start (PRD §3.2.4 / rule #7). Admins may cancel any reservation at
- * any time.
+ * start (rule #7). Admins may cancel any reservation at any time.
  *
  * A reservation that already has at least one Flight cannot be cancelled
  * — the flight is the source of truth that the reservation actually
  * happened, and is an immutable logbook record.
+ *
+ * A reservation with `autoCreatedFromFlight = true` cannot be cancelled
+ * by anyone (including admin). The underlying flight is the only thing
+ * that owns its existence; cancelling would orphan the FK.
+ *
+ * The transaction wrapper is kept (single statement now) for future-
+ * proofing against added side effects.
  */
 export async function cancelReservation(
   input: CancelReservationInput,
-): Promise<CancelReservationResult> {
-  return await prisma.$transaction(
+): Promise<void> {
+  await prisma.$transaction(
     async (tx) => {
       const reservation = await tx.reservation.findUnique({
         where: { id: input.reservationId },
@@ -227,6 +231,9 @@ export async function cancelReservation(
       }
       if (!input.isAdmin && reservation.userId !== input.actorId) {
         throw new Error("Accès refusé");
+      }
+      if (reservation.autoCreatedFromFlight) {
+        throw new AutoCreatedReservationError();
       }
       if (reservation.flights.length > 0) {
         throw new ReservationLockedError();
@@ -249,22 +256,6 @@ export async function cancelReservation(
           cancelledById: input.actorId,
         },
       });
-
-      const result = await applyHdvMutation(tx, {
-        userId: reservation.userId,
-        type: "CANCELLATION_REFUND",
-        amountMin: reservation.hdvDeductedMin, // positive — refund
-        reservationId: reservation.id,
-        performedById: input.actorId,
-        // Refunds always succeed even if the user has been over-debited
-        // by some other path (defensive).
-        allowNegative: true,
-      });
-
-      return {
-        refundedMin: reservation.hdvDeductedMin,
-        newBalanceMin: result.newBalanceMin,
-      };
     },
     { isolationLevel: "Serializable", maxWait: 5000, timeout: 10000 },
   );

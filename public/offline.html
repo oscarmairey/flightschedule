@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b6bcb" />
+    <title>Hors ligne — FlightSchedule</title>
+    <link rel="icon" href="/icon-192.png" />
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        background: #ffffff;
+        color: #1a1a1a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+      }
+      main {
+        max-width: 28rem;
+        text-align: center;
+      }
+      img {
+        width: 72px;
+        height: 72px;
+        margin-bottom: 1.25rem;
+        border-radius: 16px;
+      }
+      h1 {
+        font-size: 1.5rem;
+        margin: 0 0 0.5rem;
+        font-weight: 600;
+      }
+      p {
+        color: #555;
+        line-height: 1.5;
+        margin: 0 0 1.5rem;
+      }
+      button {
+        background: #0b6bcb;
+        color: #fff;
+        border: 0;
+        padding: 0.75rem 1.25rem;
+        border-radius: 9999px;
+        font-size: 1rem;
+        font-weight: 500;
+        cursor: pointer;
+        min-height: 44px;
+      }
+      button:hover {
+        background: #0a5fb4;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/icon-192.png" alt="FlightSchedule" />
+      <h1>Hors ligne</h1>
+      <p>
+        Vous n'êtes pas connecté à Internet. Vérifiez votre connexion puis
+        réessayez — vos réservations et votre solde HDV vous attendent dès le
+        retour du réseau.
+      </p>
+      <button type="button" onclick="location.reload()">Réessayer</button>
+    </main>
+  </body>
+</html>

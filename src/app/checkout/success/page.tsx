@@ -1,4 +1,4 @@
-// FlySchedule — post-Stripe-Checkout success landing.
+// FlightSchedule — post-Stripe-Checkout success landing.
 //
 // The Stripe webhook is async — it might not have arrived by the time
 // the user lands here. Show the current balance from the DB, and warn
@@ -37,10 +37,10 @@ export default async function CheckoutSuccessPage() {
           <CheckCircle2 className="h-7 w-7" aria-hidden="true" />
         </div>
         <h1 className="font-display text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
-          {COPY.account.successTitle}
+          {COPY.checkout.successTitle}
         </h1>
         <p className="mt-3 text-base leading-relaxed text-text-muted">
-          {COPY.account.successBody}
+          {COPY.checkout.successBody}
         </p>
 
         <Card tone="brand" className="mt-8 p-7">
@@ -59,12 +59,12 @@ export default async function CheckoutSuccessPage() {
         </Card>
 
         <p className="mt-6 text-xs leading-relaxed text-text-subtle">
-          {COPY.account.successPending}
+          {COPY.checkout.successPending}
         </p>
 
         <Link href="/dashboard" className="mt-8 block">
           <Button fullWidth size="lg">
-            {COPY.account.backToDashboard}
+            {COPY.checkout.backToDashboard}
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Button>
         </Link>

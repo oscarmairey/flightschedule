@@ -1,4 +1,24 @@
-// FlySchedule — availability windows.
+// FlightSchedule — availability windows.
+//
+// ════════════════════════════════════════════════════════════════════
+// V2 — OPEN PERIODS + UNAVAILABILITY EXCEPTIONS
+// ════════════════════════════════════════════════════════════════════
+//
+// V2 (CLAUDE.md rule #8): the aircraft is bookable inside any OpenPeriod
+// (date range, 24/7 within), MINUS any AvailabilityBlock exception that
+// applies to the requested window.
+//
+// Special case: if NO OpenPeriod rows exist, the aircraft is treated as
+// always open. This preserves the V2.0 behavior on fresh installs and
+// avoids breaking the booking flow before any season has been defined.
+//
+// MULTI-DAY: a reservation may span multiple Paris-local days. The check
+// iterates each day the request touches and validates BOTH that the day
+// is inside an OpenPeriod AND that no exception overlaps the local
+// time-of-day range on that day.
+//
+// PRECEDENCE for exceptions: a `specificDate` exception always wins over
+// a `dayOfWeek` recurring exception for that date.
 //
 // ════════════════════════════════════════════════════════════════════
 // EUROPE/PARIS TIMEZONE TRAP — READ THIS BEFORE EDITING
@@ -25,16 +45,9 @@
 //     with timeZone: "Europe/Paris").
 //   - Day-of-week is the JavaScript convention: Sunday=0, Saturday=6,
 //     same as the AvailabilityBlock.dayOfWeek field.
-//   - Half-open intervals: a request for 10:00–11:00 is contained in
-//     a window of 10:00–11:00 (boundaries are inclusive on the left,
+//   - Half-open intervals: a request for 09:00–12:00 is contained in
+//     a window of 09:00–12:00 (boundaries are inclusive on the left,
 //     exclusive on the right).
-//
-// PRECEDENCE RULE (PRD §3.2.1):
-//   1. If a `specificDate` block exists for the requested date, those
-//      blocks WIN — recurring (`dayOfWeek`) blocks are ignored entirely.
-//   2. Among the chosen set, an `UNAVAILABLE` block always overrides
-//      `AVAILABLE`. The request is allowed only if it falls inside an
-//      AVAILABLE block AND outside every UNAVAILABLE block.
 
 import { prisma } from "@/lib/db";
 import type { AvailabilityBlockModel } from "@/generated/prisma/models/AvailabilityBlock";
@@ -103,11 +116,39 @@ export type AvailabilityCheckResult =
   | { ok: false; reason: string };
 
 /**
- * Determine whether a UTC time window falls entirely within an
- * AVAILABLE block, with no UNAVAILABLE override blocking it.
+ * Iterate Paris-local YYYY-MM-DD dates from startYmd to endYmd, inclusive.
+ */
+function iterateLocalDates(startYmd: string, endYmd: string): string[] {
+  const out: string[] = [];
+  let cursor = new Date(`${startYmd}T12:00:00.000Z`); // noon = DST-safe
+  const end = new Date(`${endYmd}T12:00:00.000Z`);
+  while (cursor <= end) {
+    out.push(cursor.toISOString().slice(0, 10));
+    cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return out;
+}
+
+/**
+ * JS day-of-week (Sun=0..Sat=6) for a Paris-local YYYY-MM-DD.
+ */
+function dayOfWeekForLocalDate(ymd: string): number {
+  // Use noon to dodge DST edges; the day-of-week is stable within the day.
+  return new Date(`${ymd}T12:00:00.000Z`).getUTCDay();
+}
+
+/**
+ * Determine whether a UTC time window is bookable.
  *
- * Both bounds must be in the same Paris-local day. Cross-midnight
- * reservations are rejected (out of V1 scope).
+ * V2 logic:
+ *   1. Reject if endsAtUtc <= startsAtUtc.
+ *   2. Iterate every Paris-local day the window touches.
+ *   3. For each day, require it to fall inside some OpenPeriod (unless
+ *      no OpenPeriod rows exist at all → always-open fallback).
+ *   4. For each day, compute the local minutes range the window covers
+ *      on that day (clamped to 0..1440) and reject if any exception
+ *      overlaps it. Specific-date exceptions take precedence over
+ *      recurring weekday exceptions for that day.
  */
 export async function isWithinAvailability(
   startsAtUtc: Date,
@@ -118,84 +159,93 @@ export async function isWithinAvailability(
   }
 
   const startParts = toLocalParts(startsAtUtc);
-  const endParts = toLocalParts(endsAtUtc);
+  // For the end, subtract a millisecond so a 21:00–24:00 (== next-day 00:00)
+  // request only touches the start day, not the next.
+  const endParts = toLocalParts(new Date(endsAtUtc.getTime() - 1));
 
-  if (startParts.yyyymmdd !== endParts.yyyymmdd) {
-    return {
-      ok: false,
-      reason: "Une réservation ne peut pas chevaucher minuit (heure de Paris).",
-    };
+  const days = iterateLocalDates(startParts.yyyymmdd, endParts.yyyymmdd);
+
+  // Check OpenPeriod gating once for the whole window.
+  const openPeriodCount = await prisma.openPeriod.count();
+  if (openPeriodCount > 0) {
+    for (const ymd of days) {
+      const dayUtc = parisDateToUtcMidnight(ymd);
+      const period = await prisma.openPeriod.findFirst({
+        where: {
+          startDate: { lte: dayUtc },
+          endDate: { gte: dayUtc },
+        },
+        select: { id: true },
+      });
+      if (!period) {
+        return {
+          ok: false,
+          reason: `Hors période d'ouverture (${ymd}).`,
+        };
+      }
+    }
   }
 
-  const dayOfWeek = startParts.dayOfWeek;
-  const startMin = startParts.minutesFromMidnight;
-  // For the end, recompute in case end is exactly midnight (1440)
-  const endMin = endParts.minutesFromMidnight === 0
-    ? 1440
-    : endParts.minutesFromMidnight;
+  // For each day, check unavailability exceptions against the window's
+  // local minutes-of-day on that day.
+  for (const ymd of days) {
+    const isFirstDay = ymd === startParts.yyyymmdd;
+    const isLastDay = ymd === endParts.yyyymmdd;
 
-  const specificDate = parisDateToUtcMidnight(startParts.yyyymmdd);
+    let startMin: number;
+    let endMin: number;
+    if (isFirstDay && isLastDay) {
+      startMin = startParts.minutesFromMidnight;
+      const rawEnd = toLocalParts(endsAtUtc).minutesFromMidnight;
+      endMin = rawEnd === 0 ? 1440 : rawEnd;
+    } else if (isFirstDay) {
+      startMin = startParts.minutesFromMidnight;
+      endMin = 1440;
+    } else if (isLastDay) {
+      startMin = 0;
+      const rawEnd = toLocalParts(endsAtUtc).minutesFromMidnight;
+      endMin = rawEnd === 0 ? 1440 : rawEnd;
+    } else {
+      startMin = 0;
+      endMin = 1440;
+    }
 
-  const overrideBlocks = await prisma.availabilityBlock.findMany({
-    where: { specificDate },
-  });
+    const dayUtc = parisDateToUtcMidnight(ymd);
+    const overrideBlocks = await prisma.availabilityBlock.findMany({
+      where: { specificDate: dayUtc },
+    });
 
-  // Precedence: if any specific_date blocks exist for this day, only
-  // those count — recurring blocks are ignored.
-  const blocks =
-    overrideBlocks.length > 0
-      ? overrideBlocks
-      : await prisma.availabilityBlock.findMany({
-          where: { dayOfWeek },
-        });
+    const blocks =
+      overrideBlocks.length > 0
+        ? overrideBlocks
+        : await prisma.availabilityBlock.findMany({
+            where: { dayOfWeek: dayOfWeekForLocalDate(ymd) },
+          });
 
-  if (blocks.length === 0) {
-    return {
-      ok: false,
-      reason: "Aucune disponibilité définie pour cette date.",
-    };
-  }
-
-  // Reject if any UNAVAILABLE block overlaps the requested window.
-  const unavailableHit = blocks.find(
-    (b) =>
-      b.type === "UNAVAILABLE" &&
-      b.startMinutes < endMin &&
-      b.endMinutes > startMin,
-  );
-  if (unavailableHit) {
-    return {
-      ok: false,
-      reason: unavailableHit.reason
-        ? `Période bloquée : ${unavailableHit.reason}`
-        : "Période bloquée par l'administrateur.",
-    };
-  }
-
-  // Accept if some AVAILABLE block fully contains [startMin, endMin).
-  const containingAvailable = blocks.find(
-    (b) =>
-      b.type === "AVAILABLE" &&
-      b.startMinutes <= startMin &&
-      b.endMinutes >= endMin,
-  );
-  if (!containingAvailable) {
-    return {
-      ok: false,
-      reason: "Plage hors des fenêtres de disponibilité.",
-    };
+    const hit = blocks.find(
+      (b) => b.startMinutes < endMin && b.endMinutes > startMin,
+    );
+    if (hit) {
+      return {
+        ok: false,
+        reason: hit.reason
+          ? `Période bloquée : ${hit.reason}`
+          : "Période bloquée par l'administrateur.",
+      };
+    }
   }
 
   return { ok: true };
 }
 
 /**
- * Return the effective AVAILABLE windows for a given Paris-local date.
- * Used by the calendar UI to render the bookable background tints.
+ * Return the unavailability exception windows for a given Paris-local
+ * date. Used by the calendar UI to render the red overlay on cells
+ * that fall inside a blocking exception.
  */
-export async function getAvailabilityForDate(
+export async function getUnavailabilityForDate(
   parisLocalDate: Date,
-): Promise<{ startMinutes: number; endMinutes: number }[]> {
+): Promise<{ startMinutes: number; endMinutes: number; reason: string | null }[]> {
   const parts = toLocalParts(parisLocalDate);
   const specificDate = parisDateToUtcMidnight(parts.yyyymmdd);
 
@@ -212,13 +262,11 @@ export async function getAvailabilityForDate(
           orderBy: { startMinutes: "asc" },
         });
 
-  // Return AVAILABLE windows minus UNAVAILABLE overlays. For the simple
-  // V1 case the UI doesn't need pixel-perfect splitting — it can render
-  // available tints and the booking server-side check will reject any
-  // overlap with UNAVAILABLE blocks. So we just return the AVAILABLE list.
-  return blocks
-    .filter((b) => b.type === "AVAILABLE")
-    .map((b) => ({ startMinutes: b.startMinutes, endMinutes: b.endMinutes }));
+  return blocks.map((b) => ({
+    startMinutes: b.startMinutes,
+    endMinutes: b.endMinutes,
+    reason: b.reason,
+  }));
 }
 
 /**

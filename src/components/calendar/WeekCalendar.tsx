@@ -1,29 +1,34 @@
-// FlySchedule — weekly calendar grid.
+// FlightSchedule — weekly calendar grid.
 //
 // Server component. Renders a Mon→Sun week with time-of-day rows on the
-// left axis. Availability windows are tinted in success-soft (sun on
-// grass), reservations render as colored blocks on top — sky blue for
-// own bookings, warm slate for others.
+// left axis. V2: the aircraft is available 24/7 by default, so cells are
+// rendered "open" by default. Cells inside an unavailability exception
+// get a red overlay. Reservations render as colored blocks on top — sky
+// blue for own bookings, warm slate for others.
 //
-// Design constraints (PRD §3.2.2 + §7.2 + .impeccable.md):
+// Design constraints:
 //   - Mobile-first: on small screens, scrolls horizontally with snap
 //     so the whole week is reachable from a phone.
-//   - 30-minute slot granularity (matches RESERVATION_LIMITS).
-//   - 06:00–22:00 visible band (32 rows). Each row is ≥44px tall to
-//     give pilots a fat-finger target on a phone in sunlight.
+//   - 3-hour slot granularity (matches RESERVATION_LIMITS — V2 inversion).
+//   - 00:00–24:00 visible band (8 rows of 3 hours: 00–03, 03–06, 06–09,
+//     09–12, 12–15, 15–18, 18–21, 21–24). Each row is ≥44px tall.
 //   - Own reservations highlighted in brand sky blue; others in stone.
 //   - Bookable slots are clickable links to /calendar?slot=...
 //   - Every interactive cell has an explicit aria-label so screen
 //     readers (and the title tooltip) describe the slot.
 //
 // This is a server component — clicking a slot navigates to a query
-// param that the page reads to open the booking dialog. No client JS
+// param that the page reads to pre-fill the booking form. No client JS
 // needed for the calendar grid itself.
 
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { getAvailabilityForDate } from "@/lib/availability";
-import { formatDayMonthFR, DAY_LABELS_FR } from "@/lib/format";
+import { getUnavailabilityForDate } from "@/lib/availability";
+import {
+  formatDayMonthShortFR,
+  formatDateFR,
+  DAY_LABELS_FR,
+} from "@/lib/format";
 
 type Reservation = {
   id: string;
@@ -40,10 +45,10 @@ type WeekCalendarProps = {
   buildSlotHref: (date: string, time: string) => string;
 };
 
-const VISIBLE_START_MIN = 6 * 60; // 06:00
-const VISIBLE_END_MIN = 22 * 60; // 22:00
-const SLOT_MIN = 30;
-const ROWS = (VISIBLE_END_MIN - VISIBLE_START_MIN) / SLOT_MIN; // 32
+const VISIBLE_START_MIN = 0; // 00:00
+const VISIBLE_END_MIN = 24 * 60; // 24:00
+const SLOT_MIN = 180; // 3-hour blocks
+const ROWS = (VISIBLE_END_MIN - VISIBLE_START_MIN) / SLOT_MIN; // 8
 
 const TZ = "Europe/Paris";
 
@@ -106,7 +111,7 @@ export async function WeekCalendar({
   const days = buildWeekDays(weekStart);
   const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const [reservations, ...availPerDay] = await Promise.all([
+  const [reservations, ...unavailPerDay] = await Promise.all([
     prisma.reservation.findMany({
       where: {
         status: "CONFIRMED",
@@ -116,16 +121,68 @@ export async function WeekCalendar({
       include: { user: { select: { name: true } } },
       orderBy: { startsAt: "asc" },
     }),
-    ...days.map((d) => getAvailabilityForDate(d.date)),
+    ...days.map((d) => getUnavailabilityForDate(d.date)),
   ]);
 
-  // Index reservations by Paris-local yyyymmdd
-  const resByDay = new Map<string, Reservation[]>();
+  // Build per-day segments. A multi-day reservation appears once on each
+  // Paris-local day it touches, with `dayStartMin/dayEndMin` clamped to
+  // 0..1440 within that day. `isSegmentStart` flags the first segment
+  // (where the title is rendered).
+  type Segment = {
+    r: Reservation;
+    dayStartMin: number;
+    dayEndMin: number;
+    isSegmentStart: boolean;
+    overallStartMin: number; // for tooltip — local minutes on this segment's day
+    overallEndMin: number;
+    overallStartLabel: string;
+    overallEndLabel: string;
+  };
+  const resByDay = new Map<string, Segment[]>();
   for (const r of reservations) {
-    const wc = toParisWallClock(r.startsAt);
-    const list = resByDay.get(wc.yyyymmdd) ?? [];
-    list.push(r);
-    resByDay.set(wc.yyyymmdd, list);
+    const startWC = toParisWallClock(r.startsAt);
+    // Subtract 1ms from end so a midnight-end reservation only paints the
+    // start day (matches isWithinAvailability's convention).
+    const endWC = toParisWallClock(new Date(r.endsAt.getTime() - 1));
+    const overallStartLabel = fmtTimeLabel(startWC.minutes);
+    const rawEndMinutes = toParisWallClock(r.endsAt).minutes;
+    const overallEndLabel = fmtTimeLabel(rawEndMinutes === 0 ? 1440 : rawEndMinutes);
+
+    let cursorYmd = startWC.yyyymmdd;
+    let isFirst = true;
+    while (true) {
+      const isStartDay = cursorYmd === startWC.yyyymmdd;
+      const isEndDay = cursorYmd === endWC.yyyymmdd;
+      const dayStartMin = isStartDay ? startWC.minutes : 0;
+      let dayEndMin: number;
+      if (isEndDay) {
+        const rawEnd = toParisWallClock(r.endsAt).minutes;
+        dayEndMin = rawEnd === 0 || !isStartDay ? (rawEnd === 0 ? 1440 : rawEnd) : rawEnd;
+        if (rawEnd === 0) dayEndMin = 1440;
+      } else {
+        dayEndMin = 1440;
+      }
+
+      const list = resByDay.get(cursorYmd) ?? [];
+      list.push({
+        r,
+        dayStartMin,
+        dayEndMin,
+        isSegmentStart: isFirst,
+        overallStartMin: dayStartMin,
+        overallEndMin: dayEndMin,
+        overallStartLabel,
+        overallEndLabel,
+      });
+      resByDay.set(cursorYmd, list);
+
+      if (isEndDay) break;
+      // Advance one Paris-local day (noon to dodge DST edges).
+      const next = new Date(`${cursorYmd}T12:00:00.000Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      cursorYmd = next.toISOString().slice(0, 10);
+      isFirst = false;
+    }
   }
 
   // Determine "today" in Paris for highlighting the current column
@@ -139,7 +196,7 @@ export async function WeekCalendar({
           <span className="inline-flex items-center gap-1.5">
             <span
               aria-hidden="true"
-              className="inline-block h-3 w-3 rounded-sm border border-success-soft-border bg-success-soft"
+              className="inline-block h-3 w-3 rounded-sm border border-border-subtle bg-surface-elevated"
             />
             Disponible
           </span>
@@ -156,6 +213,13 @@ export async function WeekCalendar({
               className="inline-block h-3 w-3 rounded-sm bg-text-muted/40"
             />
             Réservé par un autre pilote
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className="inline-block h-3 w-3 rounded-sm border border-danger-soft-border bg-danger-soft"
+            />
+            Indisponible
           </span>
         </div>
 
@@ -184,58 +248,51 @@ export async function WeekCalendar({
                     isToday ? "text-brand" : "text-text-strong"
                   }`}
                 >
-                  {formatDayMonthFR(d.date)}
+                  {formatDayMonthShortFR(d.date)}
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* Slot grid */}
+        {/* Slot grid — 5 rows of 3 hours each */}
         <div className="relative bg-surface-elevated">
           {Array.from({ length: ROWS }).map((_, rowIdx) => {
             const slotMin = VISIBLE_START_MIN + rowIdx * SLOT_MIN;
-            const isHourBoundary = slotMin % 60 === 0;
+            const slotEndMin = slotMin + SLOT_MIN;
             return (
               <div
                 key={rowIdx}
-                className={`grid ${
-                  isHourBoundary
-                    ? "border-t border-border-subtle"
-                    : "border-t border-dashed border-border-subtle/60"
-                }`}
+                className="grid border-t border-border-subtle"
                 style={{ gridTemplateColumns: "64px repeat(7, 1fr)" }}
               >
-                <div className="flex min-h-11 items-start justify-end px-2 pt-1 text-xs tabular text-text-subtle">
-                  {isHourBoundary ? `${pad2(slotMin / 60)}h` : ""}
+                <div className="flex min-h-32 items-start justify-end px-2 pt-2 text-xs tabular text-text-subtle">
+                  {`${pad2(slotMin / 60)}h`}
                 </div>
                 {days.map((d, dayIdx) => {
-                  const dayAvail = availPerDay[dayIdx] ?? [];
-                  const inAvail = dayAvail.some(
-                    (a) =>
-                      a.startMinutes <= slotMin && a.endMinutes > slotMin,
+                  const dayUnavail = unavailPerDay[dayIdx] ?? [];
+                  const unavailHit = dayUnavail.find(
+                    (a) => a.startMinutes < slotEndMin && a.endMinutes > slotMin,
                   );
-                  const dayRes = resByDay.get(d.yyyymmdd) ?? [];
-                  const blocking = dayRes.find((r) => {
-                    const rs = toParisWallClock(r.startsAt).minutes;
-                    const re = toParisWallClock(r.endsAt).minutes;
-                    return rs <= slotMin && re > slotMin;
-                  });
-                  const isOwn = blocking?.userId === currentUserId;
+                  const daySegments = resByDay.get(d.yyyymmdd) ?? [];
+                  const segment = daySegments.find(
+                    (s) => s.dayStartMin < slotEndMin && s.dayEndMin > slotMin,
+                  );
+                  const isOwn = segment?.r.userId === currentUserId;
                   const isToday = d.yyyymmdd === todayWC.yyyymmdd;
 
-                  if (blocking) {
-                    const bs = toParisWallClock(blocking.startsAt).minutes;
-                    const be = toParisWallClock(blocking.endsAt).minutes;
-                    const isFirstSlot = bs === slotMin;
-                    const isLastSlot = be - SLOT_MIN === slotMin;
+                  if (segment) {
+                    const bs = segment.dayStartMin;
+                    const be = segment.dayEndMin;
+                    const isFirstSlot = bs >= slotMin && bs < slotEndMin;
+                    const isLastSlot = be > slotMin && be <= slotEndMin;
                     return (
                       <div
                         key={dayIdx}
                         role="img"
-                        aria-label={`Réservé par ${blocking.user.name}, ${fmtTimeLabel(bs)} à ${fmtTimeLabel(be)}`}
-                        title={`${blocking.user.name} · ${fmtTimeLabel(bs)}–${fmtTimeLabel(be)}`}
-                        className={`relative min-h-11 border-l border-border-subtle ${
+                        aria-label={`Réservé par ${segment.r.user.name}, ${segment.overallStartLabel} à ${segment.overallEndLabel}`}
+                        title={`${segment.r.user.name} · ${segment.overallStartLabel}–${segment.overallEndLabel}`}
+                        className={`relative min-h-32 border-l border-border-subtle ${
                           isOwn
                             ? "bg-brand text-text-on-brand"
                             : "bg-text-muted/30 text-text"
@@ -243,13 +300,13 @@ export async function WeekCalendar({
                           isLastSlot ? "rounded-b-md" : ""
                         }`}
                       >
-                        {isFirstSlot && (
-                          <div className="absolute inset-x-1.5 top-1 space-y-0.5">
-                            <p className="truncate text-[0.7rem] font-semibold leading-tight">
-                              {blocking.user.name}
+                        {isFirstSlot && segment.isSegmentStart && (
+                          <div className="absolute inset-x-1.5 top-1.5 space-y-0.5">
+                            <p className="truncate text-xs font-semibold leading-tight">
+                              {segment.r.user.name}
                             </p>
-                            <p className="truncate text-[0.65rem] tabular leading-tight opacity-80">
-                              {fmtTimeLabel(bs)}–{fmtTimeLabel(be)}
+                            <p className="truncate text-[0.7rem] tabular leading-tight opacity-80">
+                              {segment.overallStartLabel}–{segment.overallEndLabel}
                             </p>
                           </div>
                         )}
@@ -257,26 +314,34 @@ export async function WeekCalendar({
                     );
                   }
 
-                  if (inAvail) {
-                    const timeStr = fmtTimeLabel(slotMin);
+                  if (unavailHit) {
                     return (
-                      <Link
+                      <div
                         key={dayIdx}
-                        href={buildSlotHref(d.yyyymmdd, timeStr)}
-                        aria-label={`Réserver le ${formatDayMonthFR(d.date)} à ${timeStr}`}
-                        title={`Disponible — réserver à ${timeStr}`}
-                        className={`min-h-11 border-l border-border-subtle bg-success-soft/50 transition-colors hover:bg-success-soft ${
-                          isToday ? "ring-1 ring-inset ring-brand-soft-border/30" : ""
-                        }`}
+                        role="img"
+                        aria-label={`Indisponible${unavailHit.reason ? ` — ${unavailHit.reason}` : ""}`}
+                        title={
+                          unavailHit.reason
+                            ? `Indisponible — ${unavailHit.reason}`
+                            : "Indisponible"
+                        }
+                        className="min-h-32 border-l border-border-subtle bg-danger-soft/60"
                       />
                     );
                   }
 
+                  const timeStr = fmtTimeLabel(slotMin);
                   return (
-                    <div
+                    <Link
                       key={dayIdx}
-                      aria-hidden="true"
-                      className="min-h-11 border-l border-border-subtle bg-surface-sunken/40"
+                      href={buildSlotHref(d.yyyymmdd, timeStr)}
+                      aria-label={`Réserver le ${formatDateFR(d.date)} à ${timeStr}`}
+                      title={`Disponible — réserver à ${timeStr}`}
+                      className={`min-h-32 border-l border-border-subtle transition-colors hover:bg-surface-sunken/40 ${
+                        isToday
+                          ? "ring-1 ring-inset ring-brand-soft-border/30"
+                          : ""
+                      }`}
                     />
                   );
                 })}

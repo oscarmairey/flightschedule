@@ -1,8 +1,13 @@
-// FlySchedule — Prisma schema
+// FlightSchedule — Prisma schema
 // All durations stored as Int (minutes). Display as HH:MM only.
 // Transaction table is the source of truth for HDV.
 // User.hdvBalanceMin is denormalized for read performance.
 // Every HDV mutation MUST insert a Transaction in the same DB transaction.
+//
+// V2 inversion: HDV is debited at FLIGHT submission (FLIGHT_DEBIT), not at
+// reservation booking. Reservations are scheduling blocks with no HDV impact.
+// Bloc OFF / bloc ON engine times on the Flight model are required and drive
+// the actual flown duration. See CLAUDE.md rules #3, #3b, #4, #7, #8, #9.
 //
 // Reference: PRD.md §4 and CLAUDE.md architectural rules.
 
@@ -30,14 +35,9 @@ enum ReservationStatus {
 
 enum TransactionType {
   PACKAGE_PURCHASE
-  RESERVATION_DEBIT
+  FLIGHT_DEBIT
   CANCELLATION_REFUND
   ADMIN_ADJUSTMENT
-}
-
-enum AvailabilityType {
-  AVAILABLE
-  UNAVAILABLE
 }
 
 // ─── Models ─────────────────────────────────────────────────
@@ -64,6 +64,7 @@ model User {
   transactions              Transaction[]            @relation("UserTransactions")
   performedTransactions     Transaction[]            @relation("TransactionPerformedBy")
   createdAvailabilityBlocks AvailabilityBlock[]
+  createdOpenPeriods        OpenPeriod[]
 
   @@index([email])
   @@index([isActive])
@@ -79,21 +80,26 @@ model Reservation {
   startsAt        DateTime
   endsAt          DateTime
 
-  // Snapshot at booking time. durationMin = (endsAt - startsAt) in minutes.
-  // hdvDeductedMin is what was actually subtracted from the user's balance —
-  // stored separately so refunds always restore the exact original amount,
-  // even if the underlying calculation logic ever changes.
+  // Denormalized convenience for list views — equals (endsAt - startsAt)
+  // in minutes. V2 reservations have no HDV impact, so there is no
+  // hdvDeductedMin snapshot anymore.
   durationMin     Int
-  hdvDeductedMin  Int
 
   status          ReservationStatus @default(CONFIRMED)
   cancelledAt     DateTime?
   cancelledById   String?           @db.Uuid
   cancelledBy     User?             @relation("ReservationCancelledBy", fields: [cancelledById], references: [id])
 
-  // 1:N with Flight (a reservation may hold zero or more flights — one per
-  // logbook leg). The reservation is the unit of HDV consumption; flights
-  // are immutable logbook records with no HDV impact. See CLAUDE.md rule #4.
+  // True iff the reservation was created server-side at flight-submission
+  // time for an "on the go" flight (the pilot didn't book in advance).
+  // Auto-created reservations cannot be cancelled — the underlying flight
+  // is the source of truth and flights are immutable. See CLAUDE.md rule #7.
+  autoCreatedFromFlight Boolean      @default(false)
+
+  // 1:N with Flight. V2: the FLIGHT is the sole unit of HDV consumption;
+  // the reservation is a pure scheduling block. A reservation may hold
+  // zero or more flights — multi-leg trips, plus auto-created singletons
+  // for on-the-go flight submissions. See CLAUDE.md rule #4.
   flights         Flight[]
 
   transactions    Transaction[]
@@ -112,29 +118,39 @@ model Flight {
   user                     User         @relation(fields: [userId], references: [id])
 
   // Every flight MUST reference a reservation (PRD §3.3 — 1:N: a reservation
-  // can hold any number of flights). The reservation is the HDV unit; the
-  // flight is the logbook unit.
+  // can hold any number of flights). For "on the go" flights without a
+  // pre-existing booking, the server auto-creates a reservation in the
+  // same DB transaction as the flight insert (`autoCreatedFromFlight=true`).
   reservationId            String       @db.Uuid
   reservation              Reservation  @relation(fields: [reservationId], references: [id])
 
+  // Paris-local date of `engineStart`. Used for logbook listing + the YTD
+  // aggregate. Cross-midnight flights (rare) keep the bloc-OFF date.
   date                     DateTime     @db.Date
   depAirport               String       // ICAO, e.g. "LFPN"
   arrAirport               String       // ICAO
 
-  // Actual flown time in minutes. Recorded for the logbook only — there is
-  // NO reconciliation against the reservation's reservedDurationMin. The
-  // pilot is debited for the reservation slot, full stop.
+  // Actual flown duration in minutes — server-computed from
+  // `(engineStop − engineStart)` with cross-midnight handling. The flight
+  // is the V2 unit of HDV consumption: a `FLIGHT_DEBIT` Transaction with
+  // `amountMin = -actualDurationMin` is inserted in the same DB transaction
+  // as the Flight. Negative balances are allowed (admin reconciles).
+  // See CLAUDE.md rules #3b and #9.
   actualDurationMin        Int
 
-  // Engine times stored as "HH:MM" strings (optional, no timezone math needed).
-  engineStart              String?      @db.VarChar(5)
-  engineStop               String?      @db.VarChar(5)
+  // Engine bloc OFF / bloc ON times stored as "HH:MM" strings paired with
+  // `date`. Required since they drive `actualDurationMin`. No timezone
+  // math (the date column carries the day, the strings carry the wall
+  // clock).
+  engineStart              String       @db.VarChar(5)
+  engineStop               String       @db.VarChar(5)
 
   landings                 Int          @default(1)
   remarks                  String?
 
   // Cloudflare R2 object keys, e.g. ["flights/{id}/photo_1.jpg", ...]
   // The app server NEVER transits photo bytes — uploads go browser → R2 directly.
+  // V2: photos are OPTIONAL (0–5 per flight). See CLAUDE.md rule #6.
   photos                   String[]
 
   transactions             Transaction[]
@@ -158,6 +174,13 @@ model Transaction {
   // Snapshot of user.hdvBalanceMin AFTER this transaction was applied.
   // Enables point-in-time reconstruction without replaying full history.
   balanceAfterMin Int
+
+  // EUR price in cents AT THE TIME of the transaction. Populated by the
+  // Stripe webhook on PACKAGE_PURCHASE (from session.amount_total) so the
+  // admin pilot table can compute "Montant dépensé" without joining Stripe.
+  // Null for non-purchase transactions and for legacy purchases predating
+  // V2 (no historical fill).
+  priceCents      Int?
 
   // External reference — Stripe session ID, admin reason text, etc.
   // Used for idempotency on PACKAGE_PURCHASE (check before crediting).
@@ -184,9 +207,13 @@ model Transaction {
 model AvailabilityBlock {
   id            String           @id @default(uuid()) @db.Uuid
 
-  // Dual-key system per PRD §3.2.1:
-  //   - dayOfWeek (0-6) for recurring weekly defaults
-  //   - specificDate for one-off overrides (takes precedence)
+  // V2 inversion (CLAUDE.md rule #8): the aircraft is available 24/7 by
+  // default. Every AvailabilityBlock row represents an UNAVAILABILITY
+  // exception. The AvailabilityType enum has been removed.
+  //
+  // Dual-key system:
+  //   - dayOfWeek (0-6) for recurring weekly exceptions
+  //   - specificDate for one-off exceptions (takes precedence)
   // Exactly one of dayOfWeek / specificDate must be set; enforced in app code.
   dayOfWeek     Int?             // 0 = Sunday … 6 = Saturday
   specificDate  DateTime?        @db.Date
@@ -196,7 +223,6 @@ model AvailabilityBlock {
   startMinutes  Int
   endMinutes    Int
 
-  type          AvailabilityType @default(AVAILABLE)
   reason        String?
 
   createdById   String           @db.Uuid
@@ -207,4 +233,54 @@ model AvailabilityBlock {
 
   @@index([dayOfWeek])
   @@index([specificDate])
+}
+
+// V2 — date-range "open periods" defining when the aircraft is bookable.
+// The aircraft is fully reservable (24/7) inside any OpenPeriod, EXCEPT
+// where an `AvailabilityBlock` exception (recurring or per-date) blocks it.
+//
+// Special case: if NO OpenPeriod rows exist, the aircraft is treated as
+// always open. This avoids breaking the booking flow on a fresh install
+// before the operator has defined any opening seasons.
+model OpenPeriod {
+  id          String   @id @default(uuid()) @db.Uuid
+  // Both inclusive — `endDate` is the last bookable day.
+  startDate   DateTime @db.Date
+  endDate     DateTime @db.Date
+  reason      String?
+
+  createdById String   @db.Uuid
+  createdBy   User     @relation(fields: [createdById], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([startDate])
+  @@index([endDate])
+}
+
+// V2 — Stripe HDV packages, mirrored in our DB so admin CRUD on /admin/tarifs
+// can drive Stripe Product/Price create/update/archive. The pilot purchase
+// flow on /dashboard reads from this table directly. See plan §12.
+//
+// Soft-delete only (`isActive = false`) — historical PACKAGE_PURCHASE
+// transactions keep their join target via `flyPackageId` Stripe metadata.
+model Package {
+  id              String   @id @default(uuid()) @db.Uuid
+  stripeProductId String   @unique
+  stripePriceId   String   @unique
+  name            String
+  description     String?
+  // Price excluding VAT, in EUR cents. Stripe Tax adds 20% French VAT at
+  // checkout when `tax_behavior = "exclusive"` on the Stripe Price.
+  priceCentsHT    Int
+  // HDV minutes credited on a successful purchase. Stamped into Stripe
+  // checkout session metadata (`flyHdvMin`) and read by the webhook.
+  hdvMinutes      Int
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
 }

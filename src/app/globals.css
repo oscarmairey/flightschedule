@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ============================================================
-   FlySchedule design tokens
+   FlightSchedule design tokens
 
    Per .impeccable.md (Friendly Aeroclub / Light-first / Sky blue):
 
@@ -135,7 +135,7 @@
 /* ============================================================
    Tailwind 4 theme bridge
 
-   Map FlySchedule tokens to Tailwind utility class names so we can
+   Map FlightSchedule tokens to Tailwind utility class names so we can
    write `bg-surface`, `text-text-muted`, `border-brand-soft-border`,
    etc. The `inline` keyword tells Tailwind to inline var() references
    at build time so dark-mode overrides on :root flow through.

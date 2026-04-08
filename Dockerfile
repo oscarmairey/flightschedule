@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════
-# FlySchedule — production Docker image
+# FlightSchedule — production Docker image
 #
 # Multi-stage build:
 #   1. deps    — pnpm install with frozen lockfile
@@ -24,7 +24,7 @@
 # ─── Stage 1: deps ──────────────────────────────────────────
 FROM node:20-alpine AS deps
 
-RUN apk add --no-cache openssl libc6-compat
+RUN apk add --no-cache openssl libc6-compat icu-data-full
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 WORKDIR /app
@@ -51,7 +51,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 # ─── Stage 2: builder ───────────────────────────────────────
 FROM node:20-alpine AS builder
 
-RUN apk add --no-cache openssl libc6-compat
+RUN apk add --no-cache openssl libc6-compat icu-data-full
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 WORKDIR /app
@@ -72,7 +72,7 @@ RUN pnpm build
 # ─── Stage 3: runner ────────────────────────────────────────
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache openssl libc6-compat
+RUN apk add --no-cache openssl libc6-compat icu-data-full
 
 WORKDIR /app
 

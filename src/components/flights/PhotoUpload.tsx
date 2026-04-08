@@ -1,4 +1,4 @@
-// FlySchedule — flight photo upload (client component).
+// FlightSchedule — flight photo upload (client component).
 //
 // Flow per architectural rule #6:
 //   1. User selects up to 5 image files

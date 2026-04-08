@@ -1,4 +1,4 @@
-// FlySchedule — French copy single source of truth.
+// FlightSchedule — French copy single source of truth.
 //
 // V1 is French-only. Rather than pulling in an i18n library, we keep
 // every user-facing string in this typed object. Benefits:
@@ -13,12 +13,12 @@
 
 export const COPY = {
   brand: {
-    name: "FlySchedule",
+    name: "FlightSchedule",
     tagline: "Le planning de votre avion, simplement.",
   },
 
   common: {
-    appName: "FlySchedule",
+    appName: "FlightSchedule",
     save: "Enregistrer",
     cancel: "Annuler",
     delete: "Supprimer",
@@ -36,14 +36,12 @@ export const COPY = {
 
   nav: {
     dashboard: "Tableau de bord",
-    calendar: "Calendrier",
-    newFlight: "Saisie de vol",
-    myFlights: "Mes vols",
-    account: "Mon compte",
+    calendar: "Mes réservations",
+    newFlight: "Mes vols",
     admin: "Administration",
     adminPilots: "Pilotes",
-    adminAvailability: "Disponibilités",
-    adminCalendar: "Calendrier admin",
+    adminDisponibilites: "Disponibilités",
+    adminTarifs: "Tarifs",
     signOut: "Déconnexion",
   },
 
@@ -58,7 +56,7 @@ export const COPY = {
 
     setupTitle: "Définir votre mot de passe",
     setupIntro:
-      "Bienvenue sur FlySchedule. Choisissez un mot de passe pour sécuriser votre compte.",
+      "Bienvenue sur FlightSchedule. Choisissez un mot de passe pour sécuriser votre compte.",
     newPassword: "Nouveau mot de passe",
     confirmPassword: "Confirmer le mot de passe",
     setupSubmit: "Définir le mot de passe",
@@ -77,21 +75,15 @@ export const COPY = {
     buyHdv: "Acheter des HDV",
     book: "Réserver",
     logFlight: "Saisir un vol",
-    recentFlights: "Vols récents",
-    recentTransactions: "Mouvements récents",
-    placeholder:
-      "Le tableau de bord pilote sera enrichi prochainement (PRD §3.4).",
-  },
-
-  account: {
-    title: "Mon compte",
-    subtitle: "Solde HDV, achat de forfaits, historique des mouvements",
     packages: "Forfaits HDV",
     pkgVatNote: "TVA 20 % appliquée à la caisse.",
     buy: "Acheter",
+    pkgUnavailable: "Bientôt disponible",
     transactions: "Historique des mouvements",
     transactionsEmpty: "Aucun mouvement pour le moment.",
-    pkgUnavailable: "Bientôt disponible",
+  },
+
+  checkout: {
     successTitle: "Paiement validé",
     successBody: "Votre solde HDV a été mis à jour.",
     successPending:
@@ -99,12 +91,19 @@ export const COPY = {
     backToDashboard: "Retour au tableau de bord",
     cancelTitle: "Paiement annulé",
     cancelBody: "Vous pouvez réessayer à tout moment.",
-    backToAccount: "Retour au compte",
+  },
+
+  flight: {
+    blocOff: "Heure bloc OFF",
+    blocOn: "Heure bloc ON",
+    durationComputed: "Durée calculée",
+    modeExisting: "Sur une réservation existante",
+    modeOnTheGo: "Vol sans réservation préalable",
   },
 
   txTypes: {
     PACKAGE_PURCHASE: "Achat HDV",
-    RESERVATION_DEBIT: "Réservation",
+    FLIGHT_DEBIT: "Vol",
     CANCELLATION_REFUND: "Remboursement",
     ADMIN_ADJUSTMENT: "Ajustement administrateur",
   },

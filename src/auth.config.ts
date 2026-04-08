@@ -1,4 +1,4 @@
-// FlySchedule — edge-safe Auth.js config
+// FlightSchedule — edge-safe Auth.js config
 //
 // This file is imported by `proxy.ts` (formerly `middleware.ts`) which runs
 // on the edge runtime. The edge runtime does NOT support Node.js APIs like
@@ -62,12 +62,20 @@ export const authConfig = {
         token.role = (user as { role: Role }).role;
         token.mustResetPw = (user as { mustResetPw: boolean }).mustResetPw;
       }
+      // /setup-password calls `unstable_update({ user: { mustResetPw: false } })`
+      // after a successful password write. Auth.js v5's update API only allows
+      // keys nested under `user`, so we read it from there — NOT from the top
+      // level of `session`. Reading the wrong path = silent no-op = the proxy
+      // bounces the pilot back to /setup-password forever.
       if (
         trigger === "update" &&
         session &&
-        typeof (session as { mustResetPw?: unknown }).mustResetPw === "boolean"
+        typeof (session as { user?: { mustResetPw?: unknown } }).user
+          ?.mustResetPw === "boolean"
       ) {
-        token.mustResetPw = (session as { mustResetPw: boolean }).mustResetPw;
+        token.mustResetPw = (
+          session as { user: { mustResetPw: boolean } }
+        ).user.mustResetPw;
       }
       return token;
     },

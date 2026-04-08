@@ -1,4 +1,4 @@
-// FlySchedule — Cloudflare R2 client and presign helpers.
+// FlightSchedule — Cloudflare R2 client and presign helpers.
 //
 // ARCHITECTURAL RULE #6 (load-bearing):
 //

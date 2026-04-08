@@ -1,4 +1,4 @@
-// FlySchedule — Label primitive.
+// FlightSchedule — Label primitive.
 
 import type { LabelHTMLAttributes, ReactNode } from "react";
 

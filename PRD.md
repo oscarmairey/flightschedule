@@ -1,7 +1,7 @@
-# FlySchedule — Product Requirements Document (V1)
+# FlightSchedule — Product Requirements Document (V1)
 
-**Project:** FlySchedule — the app to easily manage the reservation schedule of your plane
-**Domain:** flyschedule.org
+**Project:** FlightSchedule — the app to easily manage the reservation schedule of your plane
+**Domain:** flightschedule.org
 **Version:** 1.0
 **Date:** April 2026
 **Status:** V1 Scope Locked
@@ -12,7 +12,7 @@
 
 ### 1.1 Context
 
-FlySchedule is built around a single Cessna 182 (F-GBQA) shared among a small group of private pilots. Current operations rely on a fragmented patchwork:
+FlightSchedule is built around a single Cessna 182 (F-GBQA) shared among a small group of private pilots. Current operations rely on a fragmented patchwork:
 
 - **Reservations:** Google Sheet with half-day blocks, updated biannually by the administrator
 - **Communication:** WhatsApp group
@@ -30,7 +30,7 @@ Replace this fragmented workflow with a **single centralized web application** w
 
 ### 1.3 Success Metrics
 
-- All active pilots use `flyschedule.org` as their sole tool for reservations and flight logging within **30 days of launch**
+- All active pilots use `flightschedule.org` as their sole tool for reservations and flight logging within **30 days of launch**
 - The administrator no longer re-enters data from photos
 - Pilot self-service reduces admin workload to validation only
 
@@ -429,7 +429,7 @@ User ──┬─< Reservation ──1:1── Flight
 | Auth         | NextAuth.js (Credentials)       | Simple email/password for closed group                   |
 | Payments     | Stripe Checkout + Webhooks      | Hosted checkout, no PCI burden, receipts handled         |
 | File Storage | Cloudflare R2                   | S3-compatible, no egress fees, presigned URLs            |
-| Hosting      | Hetzner VPS + Caddy             | Existing infra; Caddy fronts flyschedule.org             |
+| Hosting      | Hetzner VPS + Caddy             | Existing infra; Caddy fronts flightschedule.org          |
 | Email        | Resend                          | Password reset; future notifications                     |
 
 **No Redis, no message queue, no additional third-party APIs for V1.** Stripe and R2 are the only external services beyond hosting and email.

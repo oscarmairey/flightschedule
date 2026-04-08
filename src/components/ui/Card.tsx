@@ -1,4 +1,4 @@
-// FlySchedule — Card primitive.
+// FlightSchedule — Card primitive.
 //
 // Variants:
 //   - elevated (default): warm white surface with soft shadow

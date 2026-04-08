@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FlySchedule — download icon.png from R2 and generate all favicon sizes.
+"""FlightSchedule — download icon.png from R2 and generate all favicon sizes.
 
 Reads R2 credentials from .env, downloads `icon.png` from the
 cavok-flight-photos bucket, and writes:

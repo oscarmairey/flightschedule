@@ -1,8 +1,10 @@
-// FlySchedule — duration helpers.
+// FlightSchedule — duration helpers.
 //
 // Architectural rule #1: all durations are stored as integer minutes. The
 // display layer is responsible for converting to/from HH:MM. Never use
 // floats. Never use decimal hours. Never store strings in the database.
+
+import { parisLocalToUtc } from "@/lib/format";
 
 export const MIN_PER_HOUR = 60;
 
@@ -128,3 +130,91 @@ export const BALANCE_TIER_LABELS: Record<BalanceTier, string> = {
   amber: "Solde moyen",
   red: "Solde faible",
 };
+
+// ────────────────────────────────────────────────────────────────────
+// Engine bloc OFF / bloc ON parsing — V2 flight HDV computation
+// ────────────────────────────────────────────────────────────────────
+
+export class EngineTimesError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "EngineTimesError";
+  }
+}
+
+/** Lower bound on a sane flight duration. Catches fat-finger entries. */
+export const MIN_FLIGHT_MIN = 5;
+/** Upper bound — matches RESERVATION_LIMITS.MAX_DURATION_MIN to keep
+ *  auto-created reservations within bookable limits. */
+export const MAX_FLIGHT_MIN = 12 * 60;
+
+const HHMM_RE = /^(\d{1,2}):(\d{2})$/;
+
+function parseHhMmString(s: string): { h: number; m: number } | null {
+  const trimmed = s.trim();
+  const match = trimmed.match(HHMM_RE);
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return { h, m };
+}
+
+export type EngineTimesResult = {
+  startsAtUtc: Date;
+  endsAtUtc: Date;
+  durationMin: number;
+  /** True iff bloc ON wrapped past midnight. Rare; flight stays on the
+   *  bloc-OFF calendar date. */
+  crossedMidnight: boolean;
+};
+
+/**
+ * Parse a flight date + bloc OFF + bloc ON into UTC instants and a
+ * computed duration in minutes. The flight date is the Paris-local
+ * calendar day of the bloc OFF moment. Cross-midnight is supported by
+ * adding 24h to bloc ON when bloc ON < bloc OFF.
+ *
+ * Throws `EngineTimesError` (with a French message) on any invalid
+ * input — bad format, equal times, duration < MIN_FLIGHT_MIN, or
+ * duration > MAX_FLIGHT_MIN.
+ */
+export function parseEngineTimes(
+  parisDateYmd: string,
+  blocOff: string,
+  blocOn: string,
+): EngineTimesResult {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(parisDateYmd)) {
+    throw new EngineTimesError("Date du vol invalide (attendu YYYY-MM-DD).");
+  }
+  const off = parseHhMmString(blocOff);
+  if (!off) {
+    throw new EngineTimesError("Heure bloc OFF invalide (attendu HH:MM).");
+  }
+  const on = parseHhMmString(blocOn);
+  if (!on) {
+    throw new EngineTimesError("Heure bloc ON invalide (attendu HH:MM).");
+  }
+
+  const offMin = off.h * MIN_PER_HOUR + off.m;
+  const onMinRaw = on.h * MIN_PER_HOUR + on.m;
+  const crossedMidnight = onMinRaw <= offMin;
+  const onMinAdjusted = crossedMidnight ? onMinRaw + 24 * MIN_PER_HOUR : onMinRaw;
+  const durationMin = onMinAdjusted - offMin;
+
+  if (durationMin < MIN_FLIGHT_MIN) {
+    throw new EngineTimesError(
+      `Durée trop courte (minimum ${MIN_FLIGHT_MIN} minutes).`,
+    );
+  }
+  if (durationMin > MAX_FLIGHT_MIN) {
+    throw new EngineTimesError(
+      `Durée trop longue (maximum ${MAX_FLIGHT_MIN / 60} heures).`,
+    );
+  }
+
+  const startsAtUtc = parisLocalToUtc(parisDateYmd, off.h, off.m);
+  const endsAtUtc = new Date(startsAtUtc.getTime() + durationMin * 60_000);
+
+  return { startsAtUtc, endsAtUtc, durationMin, crossedMidnight };
+}

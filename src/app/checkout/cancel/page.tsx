@@ -1,4 +1,4 @@
-// FlySchedule — Stripe Checkout cancel landing.
+// FlightSchedule — Stripe Checkout cancel landing.
 
 import Link from "next/link";
 import { XCircle, ArrowLeft } from "lucide-react";
@@ -17,15 +17,15 @@ export default async function CheckoutCancelPage() {
           <XCircle className="h-7 w-7" aria-hidden="true" />
         </div>
         <h1 className="font-display text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
-          {COPY.account.cancelTitle}
+          {COPY.checkout.cancelTitle}
         </h1>
         <p className="mt-3 text-base leading-relaxed text-text-muted">
-          {COPY.account.cancelBody}
+          {COPY.checkout.cancelBody}
         </p>
-        <Link href="/account" className="mt-8 block">
+        <Link href="/dashboard" className="mt-8 block">
           <Button fullWidth size="lg" variant="secondary">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            {COPY.account.backToAccount}
+            {COPY.checkout.backToDashboard}
           </Button>
         </Link>
       </div>

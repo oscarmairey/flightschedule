@@ -1,4 +1,4 @@
-// FlySchedule — singleton Prisma client.
+// FlightSchedule — singleton Prisma client.
 //
 // Prisma 7 requires a driver adapter or accelerateUrl. We use
 // @prisma/adapter-pg with the DATABASE_URL connection string.

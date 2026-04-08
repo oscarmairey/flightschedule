@@ -1,4 +1,4 @@
-// FlySchedule — HDV mutation chokepoint.
+// FlightSchedule — HDV mutation chokepoint.
 //
 // ARCHITECTURAL RULE #2 (load-bearing):
 //
@@ -36,16 +36,18 @@ export type HdvMutationInput = {
    * adjustments this is the human-readable reason text. Optional otherwise.
    */
   reference?: string | null;
-  /** Optional FK to a flight (used by ADMIN_ADJUSTMENT when correcting an HDV balance in the context of a specific logbook entry). */
+  /** Optional FK to a flight (load-bearing on FLIGHT_DEBIT — links the ledger row to the logbook entry that produced it). */
   flightId?: string | null;
-  /** Optional FK to a reservation (used by RESERVATION_DEBIT / refund). */
+  /** Optional FK to a reservation (legacy V1 field — V2 reservations have no HDV impact, so this is rarely set anymore). */
   reservationId?: string | null;
+  /** EUR cents charged (PACKAGE_PURCHASE only). Stamped on the Transaction so admin reports can show "Montant dépensé" without a Stripe API round-trip. */
+  priceCents?: number | null;
   /** Who triggered this — self for pilots, admin id for admin actions. */
   performedById: string;
   /**
    * If true, allow the resulting balance to go below zero. Defaults to
-   * false. Used by ADMIN_ADJUSTMENT and CANCELLATION_REFUND for the rare
-   * cases where balance arithmetic produces a negative.
+   * false. Used by FLIGHT_DEBIT (V2 — pilots may overdraft after a flight,
+   * admin reconciles off-platform), ADMIN_ADJUSTMENT, and CANCELLATION_REFUND.
    */
   allowNegative?: boolean;
 };
@@ -108,6 +110,7 @@ export async function applyHdvMutation(
       reference: input.reference ?? null,
       flightId: input.flightId ?? null,
       reservationId: input.reservationId ?? null,
+      priceCents: input.priceCents ?? null,
       performedById: input.performedById,
     },
     select: { id: true },

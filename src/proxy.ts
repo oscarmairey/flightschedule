@@ -1,4 +1,4 @@
-// FlySchedule route protection — Next.js 16 `proxy.ts` convention
+// FlightSchedule route protection — Next.js 16 `proxy.ts` convention
 // (formerly known as `middleware.ts`).
 //
 // Runs on the EDGE runtime: must NOT import the Prisma client or anything
@@ -8,7 +8,7 @@
 //
 // Two layers of access control:
 //   1. /admin/*       → requires session AND role === ADMIN
-//   2. /dashboard, /flights, /calendar, /account → requires session
+//   2. /dashboard, /flights, /calendar, /checkout → requires session
 //
 // Defense-in-depth: pages and route handlers MUST also re-check session
 // server-side. This proxy is a coarse filter, not the security boundary
@@ -26,7 +26,7 @@ const PILOT_PROTECTED_PREFIXES = [
   "/dashboard",
   "/flights",
   "/calendar",
-  "/account",
+  "/checkout",
 ];
 
 const ADMIN_PROTECTED_PREFIXES = ["/admin"];

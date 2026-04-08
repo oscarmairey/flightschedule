@@ -1,4 +1,4 @@
-// FlySchedule — first-login (and admin-reset) password setup.
+// FlightSchedule — first-login (and admin-reset) password setup.
 //
 // Triggered by `User.mustResetPw = true` (set by `prisma/seed.ts` for new
 // pilots and by `resetPilotPassword` admin action). The proxy at
@@ -58,7 +58,9 @@ async function setupPasswordAction(formData: FormData) {
   });
 
   // Refresh the JWT so the proxy stops sending us back here.
-  // The JWT callback at src/auth.config.ts:53-67 propagates this.
+  // The JWT callback at src/auth.config.ts reads this from
+  // `session.user.mustResetPw`. Passing it elsewhere silently no-ops and
+  // traps the pilot in a redirect loop on /setup-password.
   await unstable_update({
     user: { mustResetPw: false },
   });
@@ -105,7 +107,7 @@ export default async function SetupPasswordPage({
             priority
           />
           <span className="font-display text-2xl font-semibold tracking-tight text-text-strong">
-            FlySchedule
+            FlightSchedule
           </span>
         </div>
 

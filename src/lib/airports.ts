@@ -1,4 +1,4 @@
-// FlySchedule — common French airports for the ICAO datalist on /flights/new.
+// FlightSchedule — common French airports for the ICAO datalist on /flights/new.
 //
 // Static list of ~40 airfields a private pilot in France is likely to
 // fly between. Used as `<datalist>` suggestions, not as validation —

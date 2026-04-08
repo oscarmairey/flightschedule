@@ -1,4 +1,4 @@
-# FlySchedule — exclude bulky / generated / sensitive paths from the Docker
+# FlightSchedule — exclude bulky / generated / sensitive paths from the Docker
 # build context so `docker compose build` is fast and reproducible.
 #
 # The Dockerfile installs deps from package.json+pnpm-lock.yaml inside

@@ -1,4 +1,4 @@
-// FlySchedule — Alert primitive.
+// FlightSchedule — Alert primitive.
 //
 // Replaces the inline banner pattern that was repeated across calendar,
 // admin/flights, pilot detail, availability, account, login, etc. One

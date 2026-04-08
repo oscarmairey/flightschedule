@@ -1,4 +1,4 @@
-// FlySchedule — shared Zod validation schemas.
+// FlightSchedule — shared Zod validation schemas.
 //
 // PRD §7.3 mandates server-side validation on every mutation. Client-side
 // validation is for UX only — the server NEVER trusts client input.

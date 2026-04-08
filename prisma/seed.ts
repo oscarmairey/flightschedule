@@ -1,4 +1,4 @@
-// FlySchedule — Prisma seed script
+// FlightSchedule — Prisma seed script
 //
 // Idempotent: safe to run multiple times. Uses upsert so re-running won't
 // duplicate the bootstrap admin.

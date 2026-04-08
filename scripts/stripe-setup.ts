@@ -1,33 +1,29 @@
-// FlySchedule — one-shot Stripe Products + Prices setup script.
+// FlightSchedule V2 — one-shot Stripe setup script.
 //
 // Run:
 //   corepack pnpm tsx scripts/stripe-setup.ts
 //
 // What it does:
-//   1. For each package in src/lib/stripe.ts (PACKAGES), upserts a Stripe
-//      Product keyed by metadata.cavok_package_key.
-//   2. For each Product, ensures a Price in EUR exists with the right
-//      amount (HT, per D3) and tax_behavior=exclusive. If a stale Price
-//      with a different amount exists, archives it and creates a new one.
-//   3. Prints the resulting Price IDs to stdout for the operator to
-//      paste into .env (STRIPE_PRICE_STARTER, STRIPE_PRICE_STANDARD,
-//      STRIPE_PRICE_PREMIUM).
-//   4. Reminds the operator to enable Stripe Tax in the dashboard so
-//      French VAT (20%) is computed at checkout.
+//   1. If the local `Package` table is empty, seed it with three default
+//      packages (Starter / Standard / Premium) and create matching
+//      Stripe Products + Prices, storing their IDs on the new rows.
+//      After this seed, all package management happens via /admin/tarifs
+//      and Stripe is mirrored from there — this script does NOT touch
+//      existing rows on re-run.
+//   2. Upserts the Stripe webhook endpoint pointing at /api/webhooks/stripe
+//      and prints the new signing secret for the operator to paste into
+//      .env (STRIPE_WEBHOOK_SECRET). Re-running rotates the secret.
+//   3. Reminds the operator to enable Stripe Tax in the dashboard so
+//      French VAT (20 %) is computed at checkout.
 //
-// Idempotent: safe to re-run. Re-running:
-//   - Updates Product names/descriptions if they changed
-//   - Leaves matching Prices alone
-//   - Replaces mismatched Prices (archives old, creates new)
-//
-// CRITICAL: this script writes to the Stripe TEST account (D1). When
-// switching to live mode in Phase 7, swap STRIPE_SECRET_KEY for the
-// live key and re-run. The metadata key stays the same so re-running
-// against a fresh live account works first try.
+// Idempotent for the package seed step (only runs on empty DB). Always
+// rotates the webhook secret on re-run because Stripe only returns the
+// `secret` field on creation.
 
 import "dotenv/config";
 import Stripe from "stripe";
-import { PACKAGES } from "../src/lib/stripe";
+import { PrismaClient } from "../src/generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 const SECRET = process.env.STRIPE_SECRET_KEY;
 if (!SECRET) {
@@ -35,89 +31,89 @@ if (!SECRET) {
   process.exit(1);
 }
 
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error("DATABASE_URL is not set in .env");
+  process.exit(1);
+}
+
 const stripe = new Stripe(SECRET, {
   apiVersion: "2025-09-30.clover",
 });
 
-const METADATA_KEY = "cavok_package_key";
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: DATABASE_URL }),
+});
 
-async function upsertProduct(pkg: (typeof PACKAGES)[keyof typeof PACKAGES]) {
-  // Find existing by metadata. Stripe doesn't allow filtering by metadata
-  // in product.list, so we list and filter in-memory. At three packages
-  // this is fine.
-  const existing = await stripe.products.list({ active: true, limit: 100 });
-  const match = existing.data.find(
-    (p) => p.metadata?.[METADATA_KEY] === pkg.key,
-  );
+const DEFAULT_PACKAGES = [
+  {
+    name: "Starter",
+    description: "5 heures de vol — 100 €/h HT",
+    hdvMinutes: 5 * 60,
+    priceCentsHT: 50000,
+    sortOrder: 30,
+  },
+  {
+    name: "Standard",
+    description: "10 heures de vol — 90 €/h HT (-10 %)",
+    hdvMinutes: 10 * 60,
+    priceCentsHT: 90000,
+    sortOrder: 20,
+  },
+  {
+    name: "Premium",
+    description: "25 heures de vol — 85 €/h HT (-15 %)",
+    hdvMinutes: 25 * 60,
+    priceCentsHT: 212500,
+    sortOrder: 10,
+  },
+] as const;
 
-  if (match) {
-    if (
-      match.name !== `FlySchedule ${pkg.label}` ||
-      match.description !== pkg.description
-    ) {
-      await stripe.products.update(match.id, {
-        name: `FlySchedule ${pkg.label}`,
+async function seedPackagesIfEmpty(): Promise<void> {
+  const count = await prisma.package.count();
+  if (count > 0) {
+    console.log(
+      `• ${count} package row(s) already exist — skipping seed (manage via /admin/tarifs).`,
+    );
+    return;
+  }
+
+  console.log("• Package table empty — seeding 3 default packages + Stripe sync");
+
+  for (const pkg of DEFAULT_PACKAGES) {
+    console.log(`  • ${pkg.name}: ${pkg.hdvMinutes / 60}h, ${pkg.priceCentsHT / 100}€ HT`);
+    const product = await stripe.products.create({
+      name: pkg.name,
+      description: pkg.description,
+      metadata: {
+        flyHdvMin: String(pkg.hdvMinutes),
+      },
+    });
+    const price = await stripe.prices.create({
+      product: product.id,
+      currency: "eur",
+      unit_amount: pkg.priceCentsHT,
+      tax_behavior: "exclusive",
+      metadata: {
+        flyHdvMin: String(pkg.hdvMinutes),
+      },
+    });
+    await stripe.products.update(product.id, { default_price: price.id });
+
+    await prisma.package.create({
+      data: {
+        stripeProductId: product.id,
+        stripePriceId: price.id,
+        name: pkg.name,
         description: pkg.description,
-      });
-      console.log(`  ✓ Updated product ${match.id}`);
-    } else {
-      console.log(`  • Product ${match.id} already up to date`);
-    }
-    return match;
+        priceCentsHT: pkg.priceCentsHT,
+        hdvMinutes: pkg.hdvMinutes,
+        sortOrder: pkg.sortOrder,
+        isActive: true,
+      },
+    });
+    console.log(`    ✓ Created Package + Stripe Product ${product.id} + Price ${price.id}`);
   }
-
-  const created = await stripe.products.create({
-    name: `FlySchedule ${pkg.label}`,
-    description: pkg.description,
-    metadata: {
-      [METADATA_KEY]: pkg.key,
-      cavok_minutes: String(pkg.minutes),
-    },
-  });
-  console.log(`  ✓ Created product ${created.id}`);
-  return created;
-}
-
-async function upsertPrice(
-  product: Stripe.Product,
-  pkg: (typeof PACKAGES)[keyof typeof PACKAGES],
-): Promise<string> {
-  const prices = await stripe.prices.list({
-    product: product.id,
-    active: true,
-    limit: 10,
-  });
-
-  const match = prices.data.find(
-    (p) =>
-      p.unit_amount === pkg.priceCentsHT &&
-      p.currency === "eur" &&
-      p.tax_behavior === "exclusive",
-  );
-
-  if (match) {
-    console.log(`  • Price ${match.id} already current (${pkg.priceCentsHT} cents HT)`);
-    return match.id;
-  }
-
-  // Archive any stale prices for this product so the listing stays clean.
-  for (const stale of prices.data) {
-    await stripe.prices.update(stale.id, { active: false });
-    console.log(`  ✗ Archived stale price ${stale.id}`);
-  }
-
-  const created = await stripe.prices.create({
-    product: product.id,
-    currency: "eur",
-    unit_amount: pkg.priceCentsHT,
-    tax_behavior: "exclusive",
-    metadata: {
-      [METADATA_KEY]: pkg.key,
-      cavok_minutes: String(pkg.minutes),
-    },
-  });
-  console.log(`  ✓ Created price ${created.id} (${pkg.priceCentsHT} cents HT)`);
-  return created.id;
 }
 
 /**
@@ -127,8 +123,7 @@ async function upsertPrice(
  * Stripe only returns the `secret` field on CREATION — subsequent GETs
  * don't expose it. So if an endpoint already exists for our URL, we
  * delete + recreate to obtain a fresh secret. This is safe because the
- * webhook handler is idempotent (architectural rule #5) and the only
- * subscriber to these events is our own backend.
+ * webhook handler is idempotent (architectural rule #5).
  */
 async function upsertWebhookEndpoint(webhookUrl: string): Promise<string> {
   const endpoints = await stripe.webhookEndpoints.list({ limit: 100 });
@@ -142,8 +137,7 @@ async function upsertWebhookEndpoint(webhookUrl: string): Promise<string> {
   const created = await stripe.webhookEndpoints.create({
     url: webhookUrl,
     enabled_events: ["checkout.session.completed"],
-    description: "FlySchedule — checkout completion",
-    metadata: { [METADATA_KEY]: "checkout" },
+    description: "FlightSchedule — checkout completion",
   });
 
   if (!created.secret) {
@@ -156,24 +150,15 @@ async function upsertWebhookEndpoint(webhookUrl: string): Promise<string> {
 }
 
 async function main() {
-  console.log("FlySchedule — Stripe products & prices setup");
+  console.log("FlightSchedule V2 — Stripe setup");
   console.log("=======================================\n");
 
-  const results: { key: string; envVar: string; priceId: string }[] = [];
+  await seedPackagesIfEmpty();
+  console.log("");
 
-  for (const pkg of Object.values(PACKAGES)) {
-    console.log(`Package: ${pkg.label} (${pkg.hours}h, ${pkg.priceCentsHT / 100}€ HT)`);
-    const product = await upsertProduct(pkg);
-    const priceId = await upsertPrice(product, pkg);
-    const envVar = `STRIPE_PRICE_${pkg.key.toUpperCase()}`;
-    results.push({ key: pkg.key, envVar, priceId });
-    console.log("");
-  }
-
-  // Webhook endpoint
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ??
-    "https://flyschedule.org";
+    "https://flightschedule.org";
   const webhookUrl = `${appUrl}/api/webhooks/stripe`;
   console.log(`Webhook endpoint: ${webhookUrl}`);
   const webhookSecret = await upsertWebhookEndpoint(webhookUrl);
@@ -181,9 +166,6 @@ async function main() {
 
   console.log("=======================================");
   console.log("ENV BLOCK — paste/overwrite in .env:\n");
-  for (const r of results) {
-    console.log(`${r.envVar}="${r.priceId}"`);
-  }
   console.log(`STRIPE_WEBHOOK_SECRET="${webhookSecret}"`);
   console.log("");
   console.log("Then: docker compose up -d   # recreates the web container with new env");
@@ -193,18 +175,19 @@ async function main() {
   console.log("  Set business address to France");
   console.log("  Confirm 20% VAT applies to standard goods/services\n");
 
-  // Also emit a machine-readable JSON line at the very end so callers
-  // can parse without scraping the human prose.
   console.log(
     "::SETUP_RESULT::" +
       JSON.stringify({
-        prices: Object.fromEntries(results.map((r) => [r.envVar, r.priceId])),
         webhookSecret,
       }),
   );
 }
 
-main().catch((err) => {
-  console.error("Setup failed:", err);
-  process.exit(1);
-});
+main()
+  .catch((err) => {
+    console.error("Setup failed:", err);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

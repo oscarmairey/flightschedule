@@ -1,6 +1,6 @@
-# FlySchedule
+# FlightSchedule
 
-The app to easily manage the reservation schedule of your plane. Used by a small group of private pilots sharing a Cessna 182 (F-GBQA), replacing a fragmented Google Sheet + WhatsApp + paper logbook + Excel workflow with a single web app at **flyschedule.org**.
+The app to easily manage the reservation schedule of your plane. Used by a small group of private pilots sharing a Cessna 182 (F-GBQA), replacing a fragmented Google Sheet + WhatsApp + paper logbook + Excel workflow with a single web app at **flightschedule.org**.
 
 For full product scope, user flows, and feature details, see [PRD.md](./PRD.md).
 
@@ -65,26 +65,35 @@ These rules are load-bearing. Violating any of them will silently corrupt data, 
 - **Never** update `User.hdv_balance_min` without inserting a corresponding `Transaction` row in the same DB transaction.
 - `User.hdv_balance_min` is denormalized for read performance only — it must always equal `SUM(transactions.amount_min)` for that user.
 - Every transaction stores `balance_after_min` so any historical balance can be reconstructed without replaying the full ledger.
-- Transaction `type` enum: `package_purchase`, `reservation_debit`, `cancellation_refund`, `flight_reconciliation`, `admin_adjustment`. Do not invent new types without updating the PRD.
+- Transaction `type` enum: `package_purchase`, `flight_debit`, `cancellation_refund`, `admin_adjustment`. Do not invent new types without updating the PRD. (V2: `reservation_debit` was dropped — historical rows re-typed to `admin_adjustment` in the `invert_hdv_to_flights` migration.)
 
 ### 3. Reservation booking must be atomic
 
-A booking is one DB transaction containing:
-1. Lock the user row (or use `SELECT ... FOR UPDATE`)
-2. Check no overlap with existing `confirmed` reservations on the same date
-3. Check `user.hdv_balance_min >= reservation.duration_min`
-4. INSERT Reservation (`status = confirmed`)
-5. INSERT Transaction (`type = reservation_debit`, `amount_min = -duration_min`)
-6. UPDATE `user.hdv_balance_min`
+V2 — bookings have no HDV impact. A booking is one serializable Postgres transaction containing:
+1. Check no overlap with existing `confirmed` reservations
+2. Validate the window falls outside any unavailability exception (rule #8)
+3. INSERT Reservation (`status = confirmed`)
 
-If any step fails, roll back the entire transaction. Never half-book.
+If any step fails, roll back the entire transaction. The retry loop on Prisma error P2034 (serialization failure) covers concurrent overlap races.
 
-### 4. Reservation → Flights is 1:N (V1.1)
+### 3b. Flight submission must be atomic
+
+V2 — the FLIGHT is the unit of HDV consumption. A flight insert is one serializable Postgres transaction containing:
+1. Parse engine bloc OFF / bloc ON times (HH:MM strings paired with the Paris-local flight date) into UTC instants and a computed `actualDurationMin`. Cross-midnight is supported (`bloc ON < bloc OFF` adds 24h).
+2. Validate photos (rule #6 — V2: optional, 0–5 per flight).
+3. Resolve the reservation:
+   - **mode=existing**: lookup + ownership/status check. If engine times exceed the booked window, attempt to expand the reservation; on collision (other pilot or unavailability) attach without expanding.
+   - **mode=onthego**: try to find an existing same-user CONFIRMED reservation containing the engine times; otherwise check for cross-pilot overlap (HARD REJECT on conflict — log as data integrity violation), otherwise auto-create a CONFIRMED reservation with `autoCreatedFromFlight = true`.
+4. INSERT Flight with `engineStart`, `engineStop`, computed `actualDurationMin`, `Flight.date` derived from the Paris-local date of bloc OFF.
+5. `applyHdvMutation` with `type = FLIGHT_DEBIT`, `amountMin = -actualDurationMin`, `flightId`, **`allowNegative: true`** (admin reconciles overdrafts off-platform).
+
+### 4. Reservation ↔ Flights is 1:N (V2)
 
 - Every flight references exactly one reservation via `reservation_id` (NOT NULL).
-- A reservation may hold **zero or more** flights — a pilot can log each leg of a multi-leg trip as a separate Flight (own photos, own route, own duration).
-- **The reservation is the sole unit of HDV consumption.** The pre-debit at booking time is the entire HDV story for that slot. Flights are immutable logbook records and have **no HDV impact whatsoever** — no reconciliation, no credit for unused time, no debit for overrun. Whatever the pilot actually flew is paperwork, not accounting.
-- This rule replaced the V1.0 1:1+reconciliation model in the `simplify_drop_reconciliation` migration. The `FlightStatus` enum and `FLIGHT_RECONCILIATION` transaction type were dropped at the same time. Historical FLIGHT_RECONCILIATION rows in the ledger were re-typed to `ADMIN_ADJUSTMENT` so balances reconstructed from the ledger still tie out.
+- A reservation may hold **zero or more** flights — multi-leg trips, plus auto-created singletons for on-the-go flights.
+- **The flight is the sole unit of HDV consumption.** Reservations are pure scheduling blocks with no HDV impact. The bloc OFF / bloc ON engine times on the Flight drive the duration and the FLIGHT_DEBIT transaction.
+- A reservation with `autoCreatedFromFlight = true` cannot be cancelled by anyone (including admin). The underlying flight is the source of truth — the only way to "undo" one is to delete the immutable flight, which is forbidden by rule #9.
+- This rule INVERTS the V1.1 model in the `invert_hdv_to_flights` migration. Historical RESERVATION_DEBIT transactions were re-typed to ADMIN_ADJUSTMENT so balances reconstructed from the ledger still tie out.
 
 ### 5. Stripe webhook idempotency
 
@@ -101,30 +110,32 @@ If any step fails, roll back the entire transaction. Never half-book.
 - Flight record stores `photos: text[]` (array of R2 object keys, e.g. `flights/{flight_id}/photo_1.jpg` — never URLs).
 - **Server is the SOLE source of object keys.** Use `makePhotoKey(userId)` from `src/lib/r2.ts`. Flight submit re-validates each key with `isPhotoKeyOwnedBy()` and HEADs each one in R2 to confirm the upload landed.
 - HEIC: V1 accepts `image/heic` mime-type as-is. Modern iOS Safari typically serves JPEG from the camera roll, so client-side conversion is deferred until proven needed on a real iPhone.
-- **CORS is REQUIRED for the cross-origin browser → R2 PUT.** R2 buckets ship with no CORS policy by default. The policy must be set via the **Cloudflare REST API**, not the S3 `PutBucketCors` API — R2 access keys lack `s3:PutBucketCors` and return `AccessDenied`. Use `scripts/r2-cors-setup.ts` (idempotent, run once per bucket). Allowed origins are pinned to `https://flyschedule.org` (and `https://www.flyschedule.org`) plus localhost variants.
-- Limits: max 5 photos per flight, max 10 MB per photo.
+- **CORS is REQUIRED for the cross-origin browser → R2 PUT.** R2 buckets ship with no CORS policy by default. The policy must be set via the **Cloudflare REST API**, not the S3 `PutBucketCors` API — R2 access keys lack `s3:PutBucketCors` and return `AccessDenied`. Use `scripts/r2-cors-setup.ts` (idempotent, run once per bucket). Allowed origins are pinned to `https://flightschedule.org` (and `https://www.flightschedule.org`) plus localhost variants.
+- Limits: **0 to 5 photos per flight (V2 — optional)**, max 10 MB per photo.
 - Bucket: `cavok-flight-photos`, region WEUR. S3 endpoint is `R2_ENDPOINT` in `.env`; access keys are scoped to that single bucket (read+write only).
 
 ### 7. Cancellation rules
 
 - **Pilot cancellation:** allowed only if `now < start_time - 24h`. Server-side enforcement, not just UI.
 - **Admin cancellation:** allowed at any time, no time restriction.
-- Both cancellations refund 100% of the originally deducted HDV via a `cancellation_refund` Transaction.
+- V2: cancellation is a **status update only** — no HDV impact (bookings have no HDV in V2).
+- A reservation that has any Flight referencing it is locked against cancellation (the flight is the source of truth that the reservation actually happened).
+- A reservation with `autoCreatedFromFlight = true` cannot be cancelled at all, by anyone (rule #4).
 - After cancellation, status becomes `cancelled_by_pilot` or `cancelled_by_admin` — never just `cancelled`. Audit trail matters.
 
-### 8. AvailabilityBlock precedence
+### 8. AvailabilityBlock precedence (V2 — 24/7 default + exceptions)
 
-- A `specific_date` override takes precedence over any `day_of_week` recurring block for that date.
-- A `type = unavailable` override blocks bookings even on a normally available day.
-- Pilots can ONLY book within `available` windows. Outside availability = uncreatable, not just hidden.
+- V2: the aircraft is **available 24/7 by default**. The `AvailabilityType` enum was dropped.
+- Every `AvailabilityBlock` row represents an UNAVAILABILITY exception.
+- A `specific_date` exception takes precedence over any `day_of_week` recurring exception for that date.
+- A booking is rejected iff any applicable exception overlaps the requested window.
 
-### 9. Flights are immutable on insert (V1.1)
+### 9. Flights are immutable on insert (V2)
 
-- A flight is inserted into the database the moment the pilot submits the form. There is no `pending` → `validated` lifecycle, no admin queue, no validation step, no edit path. The `FlightStatus` enum was dropped in the `simplify_drop_reconciliation` migration.
-- **No reconciliation, ever.** The flight has no `reservedDurationMin` or `reconciliationDeltaMin` columns anymore. It records `actualDurationMin` for the logbook only, with no link to the user's HDV balance.
-- If an HDV correction is genuinely needed (rare — usually only for off-platform events like a wire transfer or a paper-logbook discrepancy), the admin uses the existing `ADMIN_ADJUSTMENT` Transaction path on `/admin/pilots/[id]` with a clear reason. There is no other way to mutate `User.hdvBalanceMin` from a flight context.
-- **Cancellation belongs to reservations, not flights.** A pilot or admin can cancel a *reservation* (which refunds the HDV) up to 24 h before its start (admin: anytime). Once *any* flight has been logged against a reservation, the reservation is locked against cancellation — see rule #7. Flights themselves cannot be cancelled, edited, or deleted from the UI.
-- The `/admin/flights` route was deleted entirely in V1.1.
+- A flight is inserted into the database the moment the pilot submits the form. There is no `pending` → `validated` lifecycle, no admin queue, no validation step, no edit path.
+- **The flight insert and FLIGHT_DEBIT transaction run atomically in one serializable Postgres transaction** (rule #3b). Engine bloc OFF / bloc ON times are required and define the duration. `allowNegative: true` — overdrafts are tolerated and reconciled off-platform.
+- If an HDV correction is genuinely needed beyond the flight-time debit (e.g., wire-transfer top-up, paper-logbook discrepancy), the admin uses the existing `ADMIN_ADJUSTMENT` Transaction path on `/admin/pilots/[id]` with a clear reason.
+- Flights themselves cannot be cancelled, edited, or deleted from the UI.
 
 ### 10. Soft delete users only
 
@@ -158,12 +169,14 @@ If any step fails, roll back the entire transaction. Never half-book.
 
 ---
 
-## Routes Map
+## Routes Map (V2)
 
-Pilot: `/dashboard`, `/calendar`, `/flights/new`, `/flights`, `/account`, `/account/checkout/{success,cancel}`
-Admin: `/admin`, `/admin/pilots`, `/admin/pilots/[id]`, `/admin/calendar`, `/admin/availability`
+Pilot: `/dashboard` (balance + Forfaits HDV + Historique des mouvements), `/calendar` (Mes réservations), `/flights/new`, `/flights`, `/checkout/{success,cancel}`
+Admin: `/admin`, `/admin/pilots`, `/admin/pilots/[id]`, `/admin/disponibilites` (merged calendar + indisponibilités), `/admin/tarifs` (Stripe Package CRUD)
 API: `/api/webhooks/stripe`, `/api/upload/presign`
 Auth: `/login`, `/setup-password`
+
+V2 deletions: `/account/*` (replaced by dashboard packages section), `/admin/calendar` and `/admin/availability` (merged into `/admin/disponibilites`).
 
 See PRD.md §6 for purpose of each route.
 
@@ -195,10 +208,11 @@ Before merging any code that touches HDV, reservations, or flights, verify:
 - [ ] Every balance change has a corresponding Transaction
 - [ ] `User.hdv_balance_min` updates and Transaction insert are in the same DB transaction
 - [ ] Stripe webhook handler is idempotent (checks Stripe session ID)
-- [ ] Reservation booking is atomic (no overlap + balance check + insert in one transaction)
+- [ ] Reservation booking is atomic (overlap + availability check + insert)
+- [ ] Flight submission is atomic (insert + FLIGHT_DEBIT in one transaction; auto-creates reservation if needed; allows negative balance)
 - [ ] Server-side enforcement of cancellation 24h rule
 - [ ] Server-side enforcement of admin-only operations
-- [ ] Validated flights cannot be edited
+- [ ] Auto-created reservations cannot be cancelled
 - [ ] Photos referenced by R2 keys, not transited through the app
 
 ---
@@ -207,7 +221,7 @@ Before merging any code that touches HDV, reservations, or flights, verify:
 
 ### Port allocation (this server, not arbitrary)
 
-This VPS already runs other apps under the same Caddy. FlySchedule deliberately uses non-default ports to stay clear of them:
+This VPS already runs other apps under the same Caddy. FlightSchedule deliberately uses non-default ports to stay clear of them:
 
 | Service        | Host port  | Container port | Binding     | Why                                                          |
 |----------------|------------|----------------|-------------|--------------------------------------------------------------|
@@ -216,7 +230,7 @@ This VPS already runs other apps under the same Caddy. FlySchedule deliberately 
 
 > The container names are still `cavok-*` because they identify a running deployment with a live Postgres volume (`cavok_postgres_data`). Renaming them is a separate, scheduled operation — see "Legacy `cavok-*` names" below.
 
-If you change these, also update `.env` (`DATABASE_URL`) and the Caddyfile entry for `flyschedule.org`.
+If you change these, also update `.env` (`DATABASE_URL`) and the Caddyfile entry for `flightschedule.org`.
 
 ### Docker is production-only — no `Dockerfile.dev`
 
@@ -242,7 +256,7 @@ pnpm db:seed                     # create the bootstrap admin
 pnpm dev                         # Next.js on http://localhost:3000
 ```
 
-Public URL via Caddy + Cloudflare: **https://flyschedule.org**
+Public URL via Caddy + Cloudflare: **https://flightschedule.org**
 
 ### Common Prisma scripts
 
@@ -262,21 +276,21 @@ Public URL via Caddy + Cloudflare: **https://flyschedule.org**
 
 ## Production access (this server)
 
-- **Public URL:** https://flyschedule.org
+- **Public URL:** https://flightschedule.org
 - **Server IP:** 89.167.7.195 (Hetzner)
-- **DNS:** Cloudflare proxied records for `flyschedule.org` (apex + `www`) → server IP. Proxied (orange cloud) is **required** because Caddy serves a Cloudflare Origin CA cert at the origin that browsers only trust when traffic comes via Cloudflare's edge.
-- **TLS at the origin:** `/etc/caddy/certs/flyschedule.org.{pem,key}` — Cloudflare Origin CA cert covering `flyschedule.org` + `www.flyschedule.org`. Dedicated to this app (other apps on the same VPS use a separate `*.oscarmairey.com` cert).
+- **DNS:** Cloudflare proxied records for `flightschedule.org` (apex + `www`) → server IP. Proxied (orange cloud) is **required** because Caddy serves a Cloudflare Origin CA cert at the origin that browsers only trust when traffic comes via Cloudflare's edge.
+- **TLS at the origin:** `/etc/caddy/certs/flightschedule.org.{pem,key}` — Cloudflare Origin CA cert covering `flightschedule.org` + `www.flightschedule.org`. Dedicated to this app (other apps on the same VPS use a separate `*.oscarmairey.com` cert).
 - **Caddy block** (in `/etc/caddy/Caddyfile`, applied with `sudo systemctl reload caddy`):
 
   ```
-  flyschedule.org {
-      tls /etc/caddy/certs/flyschedule.org.pem /etc/caddy/certs/flyschedule.org.key
+  flightschedule.org {
+      tls /etc/caddy/certs/flightschedule.org.pem /etc/caddy/certs/flightschedule.org.key
       reverse_proxy localhost:6000
   }
 
-  www.flyschedule.org {
-      tls /etc/caddy/certs/flyschedule.org.pem /etc/caddy/certs/flyschedule.org.key
-      redir https://flyschedule.org{uri} permanent
+  www.flightschedule.org {
+      tls /etc/caddy/certs/flightschedule.org.pem /etc/caddy/certs/flightschedule.org.key
+      redir https://flightschedule.org{uri} permanent
   }
   ```
 
@@ -295,16 +309,18 @@ Public URL via Caddy + Cloudflare: **https://flyschedule.org**
 
 **Foundation laid as of April 2026.** Working scaffold includes:
 
-- Next.js 16 + React 19 + Tailwind 4 + TypeScript, running in Docker behind Caddy at https://flyschedule.org
+- Next.js 16 + React 19 + Tailwind 4 + TypeScript, running in Docker behind Caddy at https://flightschedule.org
 - Prisma 7 schema covering all V1 entities (User, Reservation, Flight, Transaction, AvailabilityBlock) — first migration applied
 - Auth.js v5 Credentials provider + JWT sessions + route protection via `proxy.ts` (split into `auth.config.ts` edge-safe / `auth.ts` Node)
 - Placeholder pages: `/login` (working sign-in form), `/dashboard`, `/setup-password`
 - Docker Compose: Postgres on `127.0.0.1:5442` + Next.js on `0.0.0.0:6000`
 - Bootstrap admin seeded (`o@mairey.net`)
 - Cloudflare R2 bucket `cavok-flight-photos` (private), S3 access keys in `.env`
-- GitHub repo: `oscarmairey/flyschedule` (private)
+- GitHub repo: `oscarmairey/flightschedule` (private)
 
-**V1 fully built and deployed as of commit `4544dc8`.** Live behind Caddy at https://flyschedule.org via the production multi-stage Docker image. All 21 routes registered; Stripe Checkout end-to-end (test mode) verified with a successful 5h credit; admin pilot CRUD, calendar + atomic booking, flight entry with R2 photo upload (CORS configured), admin validation queue, and admin overview all live.
+**V1 fully built and deployed as of commit `4544dc8`.** Live behind Caddy at https://flightschedule.org via the production multi-stage Docker image. All 21 routes registered; Stripe Checkout end-to-end (test mode) verified with a successful 5h credit; admin pilot CRUD, calendar + atomic booking, flight entry with R2 photo upload (CORS configured), admin validation queue, and admin overview all live.
+
+**Rebrand to FlightSchedule (April 7, 2026).** The flyschedule.org → flightschedule.org domain cutover and brand rename happened today. Source code, docs, configs, and the public domain all use the FlightSchedule name. Live infrastructure (Caddy origin cert, DNS records, R2 bucket allowed origins, `.env` `NEXT_PUBLIC_APP_URL` / `NEXTAUTH_URL` / `RESEND_FROM_EMAIL`) is being updated by the operator separately. Legacy `cavok-*` infrastructure handles are unchanged — see "Legacy `cavok-*` names" below.
 
 **V1.1 simplification (April 2026, decision D5)** — `simplify_drop_reconciliation` migration removed three things at once:
 1. **HDV reconciliation** — flights no longer credit/debit the user. The reservation pre-debit is the entire HDV story for a slot.
@@ -324,7 +340,7 @@ Public URL via Caddy + Cloudflare: **https://flyschedule.org**
 
 ## Legacy `cavok-*` names
 
-The project was originally called CAVOK Glass Cockpit. It was rebranded to **FlySchedule** (the app to easily manage the reservation schedule of your plane) at the flyschedule.org cutover. The user-visible brand, repo, domain, and source code now all use the FlySchedule name. A few **infrastructure identifiers** still carry the old `cavok` prefix, deliberately, because renaming them is a stateful migration rather than a string-replace:
+The project rename history is **CAVOK Glass Cockpit → FlySchedule → FlightSchedule**. It was originally called CAVOK Glass Cockpit, briefly rebranded to FlySchedule earlier on 2026-04-07, then renamed the same day to **FlightSchedule** (the app to easily manage the reservation schedule of your plane) at the flightschedule.org cutover. The user-visible brand, repo, domain, and source code now all use the FlightSchedule name. A few **infrastructure identifiers** still carry the old `cavok` prefix, deliberately, because renaming them is a stateful migration rather than a string-replace:
 
 | Identifier                          | Where                       | Why it stayed                                                                                  |
 |-------------------------------------|-----------------------------|------------------------------------------------------------------------------------------------|

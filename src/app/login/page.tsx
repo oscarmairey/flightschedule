@@ -47,7 +47,7 @@ export default async function LoginPage({
             priority
           />
           <h1 className="font-display mt-8 text-5xl font-semibold tracking-tight text-text-strong sm:text-6xl">
-            FlySchedule
+            FlightSchedule
           </h1>
           <p className="mt-3 max-w-md text-sm font-medium uppercase tracking-[0.22em] text-text-muted">
             Le planning de votre avion, simplement.

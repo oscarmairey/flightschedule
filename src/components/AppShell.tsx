@@ -1,4 +1,4 @@
-// FlySchedule — application shell.
+// FlightSchedule — application shell.
 //
 // Top bar (always visible):
 //   - Logo + Fraunces wordmark — the brand surface
@@ -19,8 +19,6 @@ import {
   LayoutGrid,
   CalendarDays,
   PencilLine,
-  History,
-  CircleUser,
 } from "lucide-react";
 import { auth, signOut } from "@/auth";
 import { COPY } from "@/lib/copy";
@@ -36,15 +34,13 @@ const PILOT_ITEMS: NavItem[] = [
   { href: "/dashboard", label: COPY.nav.dashboard, Icon: LayoutGrid },
   { href: "/calendar", label: COPY.nav.calendar, Icon: CalendarDays },
   { href: "/flights/new", label: COPY.nav.newFlight, Icon: PencilLine },
-  { href: "/flights", label: COPY.nav.myFlights, Icon: History },
-  { href: "/account", label: COPY.nav.account, Icon: CircleUser },
 ];
 
 const ADMIN_ITEMS: { href: string; label: string }[] = [
   { href: "/admin", label: COPY.nav.admin },
   { href: "/admin/pilots", label: COPY.nav.adminPilots },
-  { href: "/admin/availability", label: COPY.nav.adminAvailability },
-  { href: "/admin/calendar", label: COPY.nav.adminCalendar },
+  { href: "/admin/disponibilites", label: COPY.nav.adminDisponibilites },
+  { href: "/admin/tarifs", label: COPY.nav.adminTarifs },
 ];
 
 export async function AppShell({ children }: { children: ReactNode }) {
@@ -60,7 +56,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
           <Link
             href="/dashboard"
             className="group flex items-center gap-2.5"
-            aria-label="FlySchedule"
+            aria-label="FlightSchedule"
           >
             <Image
               src="/logo.png"
@@ -71,7 +67,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
               priority
             />
             <span className="font-display text-xl font-semibold text-text-strong tracking-tight transition-colors group-hover:text-brand">
-              FlySchedule
+              FlightSchedule
             </span>
           </Link>
 
@@ -144,7 +140,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
         aria-label="Navigation principale"
         className="fixed inset-x-0 bottom-0 z-20 border-t border-border-subtle bg-surface-elevated/95 backdrop-blur md:hidden"
       >
-        <div className="mx-auto grid max-w-md grid-cols-5 gap-0.5 px-1 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1.5">
+        <div className="mx-auto grid max-w-md grid-cols-3 gap-0.5 px-1 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1.5">
           {PILOT_ITEMS.map((item) => {
             const Icon = item.Icon;
             return (

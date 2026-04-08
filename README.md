@@ -1,4 +1,4 @@
-# FlySchedule
+# FlightSchedule
 
 The app to easily manage the reservation schedule of your plane. Used by a small group of private pilots sharing a Cessna 182 (F-GBQA). See [PRD.md](./PRD.md) for the product spec and [CLAUDE.md](./CLAUDE.md) for the architectural rules.
 
@@ -11,7 +11,7 @@ docker compose up -d            # boots the web container (0.0.0.0:6000) + db (1
 docker compose logs -f web      # tail Next.js logs
 ```
 
-Public URL via Caddy + Cloudflare: <https://flyschedule.org>
+Public URL via Caddy + Cloudflare: <https://flightschedule.org>
 
 If you prefer to run Next.js on the host (with only the DB in Docker):
 
@@ -83,10 +83,10 @@ The script reads `BACKUP_PASSPHRASE` from `.env` and uploads to bucket `cavok-db
 
 ## Production deployment
 
-Already deployed at <https://flyschedule.org>:
+Already deployed at <https://flightschedule.org>:
 
 - Caddy reverse-proxies the public hostname → `localhost:6000`
-- TLS at the origin via a dedicated Cloudflare Origin CA cert at `/etc/caddy/certs/flyschedule.org.{pem,key}`
+- TLS at the origin via a dedicated Cloudflare Origin CA cert at `/etc/caddy/certs/flightschedule.org.{pem,key}`
 - Cloudflare DNS must be **proxied** (orange cloud) for the cert to be trusted by browsers
 
 To deploy a code change:

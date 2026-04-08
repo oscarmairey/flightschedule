@@ -1,4 +1,4 @@
-// FlySchedule — /admin — overview dashboard (PRD §3.5.5).
+// FlightSchedule — /admin — overview dashboard (PRD §3.5.5).
 //
 // Three sections: low-balance pilots, recent activity, recent payments.
 // (V1.1 removed the "pending flights" tile — flights no longer require
@@ -218,9 +218,15 @@ export default async function AdminOverviewPage() {
             </span>
           </Link>
           <span className="text-text-subtle">·</span>
-          <Link href="/admin/calendar">
+          <Link href="/admin/disponibilites">
             <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition-colors hover:text-brand-hover">
-              Calendrier <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              Disponibilités <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </span>
+          </Link>
+          <span className="text-text-subtle">·</span>
+          <Link href="/admin/tarifs">
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition-colors hover:text-brand-hover">
+              Tarifs <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </span>
           </Link>
         </div>

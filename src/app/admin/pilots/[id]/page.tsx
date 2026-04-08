@@ -1,4 +1,4 @@
-// FlySchedule — /admin/pilots/[id] — pilot detail with HDV adjust, reset, toggle.
+// FlightSchedule — /admin/pilots/[id] — pilot detail with HDV adjust, reset, toggle.
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -237,7 +237,7 @@ export default async function PilotDetailPage({
           {pilot.transactions.length === 0 ? (
             <Card tone="sunken">
               <p className="text-sm text-text-muted">
-                {COPY.account.transactionsEmpty}
+                {COPY.dashboard.transactionsEmpty}
               </p>
             </Card>
           ) : (

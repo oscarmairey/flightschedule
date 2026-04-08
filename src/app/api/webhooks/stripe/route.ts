@@ -1,4 +1,4 @@
-// FlySchedule — Stripe webhook handler.
+// FlightSchedule — Stripe webhook handler.
 //
 // LOAD-BEARING ARCHITECTURAL RULE #5:
 //
@@ -141,6 +141,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       amountMin: minutes,
       reference: session.id,
       performedById: userId,
+      // amount_total is in cents, VAT-inclusive (Stripe Tax). For
+      // "Montant dépensé" reporting (admin pilots table), this is what
+      // the pilot was actually charged.
+      priceCents: session.amount_total ?? null,
     });
   });
 

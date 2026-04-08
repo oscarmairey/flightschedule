@@ -1,4 +1,4 @@
-// FlySchedule — Badge primitive.
+// FlightSchedule — Badge primitive.
 //
 // Variants:
 //   - default: neutral pill

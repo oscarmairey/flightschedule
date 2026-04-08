@@ -1,23 +1,12 @@
-// FlySchedule — pilot dashboard (full per PRD §3.4).
+// FlightSchedule — pilot dashboard. V2.
 //
-// The signature surface. The HDV balance is rendered with the Fraunces
-// display face at hero scale — this is the moment a pilot opens the
-// app for, and it has to feel like a panel gauge.
-//
-// Sections:
-//   1. Hero balance + tier + quick actions (asymmetric two-column)
-//   2. Stats strip (HDV YTD, HDV all-time, total flights) — flush, not boxed
-//   3. Recent flights + recent transactions (mixed widths, not a 2-grid)
+// V2 layout (top-to-bottom):
+//   1. Hero balance + tier (left) + 3 stat cards (right): HDV YTD, Total
+//      HDV, Vols. The old quick action cards were dropped.
+//   2. Forfaits HDV — purchase packages (uniform list, no featured row)
+//   3. Historique des mouvements — full transaction history (50 rows)
 
-import Link from "next/link";
-import {
-  ArrowRight,
-  CalendarPlus,
-  PencilLine,
-  Wallet,
-  Plane,
-  TrendingUp,
-} from "lucide-react";
+import { Plane, TrendingUp } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
@@ -28,32 +17,34 @@ import {
   BALANCE_TIER_FG_CLASSES,
   BALANCE_TIER_LABELS,
 } from "@/lib/duration";
-import { formatDateFR, formatDateTimeFR } from "@/lib/format";
-import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { formatDateTimeFR } from "@/lib/format";
+import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
+import { createCheckoutSession } from "./actions";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   const session = await requireSession();
+  const params = await searchParams;
 
   const startOfYear = new Date(`${new Date().getFullYear()}-01-01T00:00:00Z`);
 
-  const [user, recentFlights, recentTx, ytdAgg, allTimeAgg, totalFlights] =
+  const [user, recentTx, ytdAgg, allTimeAgg, totalFlights, packages] =
     await Promise.all([
       prisma.user.findUnique({
         where: { id: session.user.id },
         select: { hdvBalanceMin: true, name: true, role: true },
       }),
-      prisma.flight.findMany({
-        where: { userId: session.user.id },
-        orderBy: { date: "desc" },
-        take: 5,
-      }),
       prisma.transaction.findMany({
         where: { userId: session.user.id },
         orderBy: { createdAt: "desc" },
-        take: 5,
+        take: 50,
       }),
       prisma.flight.aggregate({
         where: { userId: session.user.id, date: { gte: startOfYear } },
@@ -64,6 +55,10 @@ export default async function DashboardPage() {
         _sum: { actualDurationMin: true },
       }),
       prisma.flight.count({ where: { userId: session.user.id } }),
+      prisma.package.findMany({
+        where: { isActive: true },
+        orderBy: { sortOrder: "asc" },
+      }),
     ]);
 
   const balance = user?.hdvBalanceMin ?? 0;
@@ -74,11 +69,14 @@ export default async function DashboardPage() {
   const ytdMin = ytdAgg._sum.actualDurationMin ?? 0;
   const allTimeMin = allTimeAgg._sum.actualDurationMin ?? 0;
 
-  // Pretty-print HDV as <h>h<mm> with the hour and minutes split for
-  // independent typography (huge h, smaller mm subscript).
   const balanceHours = Math.floor(Math.max(balance, 0) / 60);
   const balanceMinutes = Math.max(balance, 0) % 60;
   const balanceSign = balance < 0 ? "−" : "";
+
+  const errorBanner =
+    params.error === "invalid_package"
+      ? "Forfait invalide ou indisponible."
+      : null;
 
   return (
     <AppShell>
@@ -93,12 +91,17 @@ export default async function DashboardPage() {
           </h1>
         </header>
 
+        {errorBanner && (
+          <div className="mb-6">
+            <Alert tone="error">{errorBanner}</Alert>
+          </div>
+        )}
+
         {/* Hero — HDV balance + actions, asymmetric */}
         <section
           aria-label="Solde HDV et actions rapides"
           className="grid gap-6 lg:grid-cols-[1.6fr_1fr]"
         >
-          {/* Hero balance */}
           <Card tone="brand" className="relative overflow-hidden p-8 sm:p-10">
             <div
               aria-hidden="true"
@@ -125,220 +128,177 @@ export default async function DashboardPage() {
                 </span>
               </p>
               <p className="mt-4 max-w-sm text-sm leading-relaxed text-text-muted">
-                Heures de vol disponibles. Achetez un forfait pour recharger
-                votre compte ou réservez un créneau dès maintenant.
+                Heures de vol disponibles. Réservez un créneau ou achetez un
+                forfait pour recharger votre compte.
               </p>
             </div>
           </Card>
 
-          {/* Quick actions */}
           <div className="flex flex-col gap-3">
-            <Link href="/calendar" className="group">
-              <Card className="flex items-center justify-between gap-4 transition-all duration-150 hover:border-brand-soft-border hover:shadow-md">
-                <div>
-                  <div className="flex items-center gap-2 text-text-strong">
-                    <CalendarPlus
-                      className="h-4 w-4 text-brand"
-                      aria-hidden="true"
-                    />
-                    <span className="text-sm font-semibold">
-                      {COPY.dashboard.book}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-text-muted">
-                    Choisissez un créneau libre
-                  </p>
+            <Card className="flex items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-text-subtle">
+                  <TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="text-xs font-medium uppercase tracking-[0.12em]">
+                    HDV {new Date().getFullYear()}
+                  </span>
                 </div>
-                <ArrowRight
-                  className="h-4 w-4 text-text-subtle transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-brand"
-                  aria-hidden="true"
-                />
-              </Card>
-            </Link>
-            <Link href="/flights/new" className="group">
-              <Card className="flex items-center justify-between gap-4 transition-all duration-150 hover:border-brand-soft-border hover:shadow-md">
-                <div>
-                  <div className="flex items-center gap-2 text-text-strong">
-                    <PencilLine
-                      className="h-4 w-4 text-brand"
-                      aria-hidden="true"
-                    />
-                    <span className="text-sm font-semibold">
-                      {COPY.dashboard.logFlight}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-text-muted">
-                    Carnet de bord après vol
-                  </p>
-                </div>
-                <ArrowRight
-                  className="h-4 w-4 text-text-subtle transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-brand"
-                  aria-hidden="true"
-                />
-              </Card>
-            </Link>
-            <Link href="/account" className="group">
-              <Card className="flex items-center justify-between gap-4 transition-all duration-150 hover:border-brand-soft-border hover:shadow-md">
-                <div>
-                  <div className="flex items-center gap-2 text-text-strong">
-                    <Wallet
-                      className="h-4 w-4 text-brand"
-                      aria-hidden="true"
-                    />
-                    <span className="text-sm font-semibold">
-                      {COPY.dashboard.buyHdv}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-text-muted">
-                    Recharger un forfait
-                  </p>
-                </div>
-                <ArrowRight
-                  className="h-4 w-4 text-text-subtle transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-brand"
-                  aria-hidden="true"
-                />
-              </Card>
-            </Link>
-          </div>
-        </section>
-
-        {/* Stats strip — flush, no card wrapper */}
-        <section
-          aria-label="Statistiques personnelles"
-          className="mt-12 grid grid-cols-3 gap-6 border-y border-border-subtle py-7 sm:gap-12"
-        >
-          <div>
-            <div className="flex items-center gap-2 text-text-subtle">
-              <TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="text-xs font-medium uppercase tracking-[0.12em]">
-                HDV {new Date().getFullYear()}
-              </span>
-            </div>
-            <p className="font-display tabular mt-2 text-3xl font-semibold tracking-tight text-text-strong sm:text-4xl">
-              {formatHHMM(ytdMin)}
-            </p>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 text-text-subtle">
-              <Plane className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="text-xs font-medium uppercase tracking-[0.12em]">
-                Total HDV
-              </span>
-            </div>
-            <p className="font-display tabular mt-2 text-3xl font-semibold tracking-tight text-text-strong sm:text-4xl">
-              {formatHHMM(allTimeMin)}
-            </p>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 text-text-subtle">
-              <span className="text-xs font-medium uppercase tracking-[0.12em]">
-                Vols
-              </span>
-            </div>
-            <p className="font-display tabular mt-2 text-3xl font-semibold tracking-tight text-text-strong sm:text-4xl">
-              {totalFlights}
-            </p>
-          </div>
-        </section>
-
-        {/* Recent flights + transactions */}
-        <div className="mt-12 grid gap-10 lg:grid-cols-[1.4fr_1fr]">
-          <section aria-labelledby="recent-flights-h">
-            <div className="mb-4 flex items-baseline justify-between">
-              <h2
-                id="recent-flights-h"
-                className="font-display text-2xl font-semibold tracking-tight text-text-strong"
-              >
-                {COPY.dashboard.recentFlights}
-              </h2>
-              <Link
-                href="/flights"
-                className="text-sm font-medium text-brand hover:text-brand-hover"
-              >
-                Tout voir →
-              </Link>
-            </div>
-            {recentFlights.length === 0 ? (
-              <Card tone="sunken">
-                <p className="text-sm text-text-muted">
-                  Aucun vol enregistré pour l&apos;instant.
+                <p className="font-display tabular mt-1 text-3xl font-semibold tracking-tight text-text-strong">
+                  {formatHHMM(ytdMin)}
                 </p>
-              </Card>
-            ) : (
-              <ul className="divide-y divide-border-subtle border-y border-border-subtle">
-                {recentFlights.map((f) => (
+              </div>
+            </Card>
+            <Card className="flex items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-text-subtle">
+                  <Plane className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="text-xs font-medium uppercase tracking-[0.12em]">
+                    Total HDV
+                  </span>
+                </div>
+                <p className="font-display tabular mt-1 text-3xl font-semibold tracking-tight text-text-strong">
+                  {formatHHMM(allTimeMin)}
+                </p>
+              </div>
+            </Card>
+            <Card className="flex items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-text-subtle">
+                  <span className="text-xs font-medium uppercase tracking-[0.12em]">
+                    Vols
+                  </span>
+                </div>
+                <p className="font-display tabular mt-1 text-3xl font-semibold tracking-tight text-text-strong">
+                  {totalFlights}
+                </p>
+              </div>
+            </Card>
+          </div>
+        </section>
+
+        {/* Forfaits HDV */}
+        <section id="forfaits" className="mt-14 scroll-mt-20">
+          <div className="mb-5 flex items-baseline justify-between">
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-text-strong">
+              {COPY.dashboard.packages}
+            </h2>
+            <p className="text-xs text-text-subtle">
+              {COPY.dashboard.pkgVatNote}
+            </p>
+          </div>
+
+          {packages.length === 0 ? (
+            <Card tone="sunken">
+              <p className="text-sm text-text-muted">
+                Aucun forfait disponible pour le moment. Contactez
+                l&apos;administrateur.
+              </p>
+            </Card>
+          ) : (
+            <ul className="divide-y divide-border-subtle border-y border-border-subtle">
+              {packages.map((pkg) => (
+                <PackageRow key={pkg.id} pkg={pkg} />
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* Historique des mouvements */}
+        <section className="mt-14">
+          <h2 className="font-display mb-4 text-2xl font-semibold tracking-tight text-text-strong">
+            {COPY.dashboard.transactions}
+          </h2>
+          {recentTx.length === 0 ? (
+            <Card tone="sunken">
+              <p className="text-sm text-text-muted">
+                {COPY.dashboard.transactionsEmpty}
+              </p>
+            </Card>
+          ) : (
+            <ul className="divide-y divide-border-subtle border-y border-border-subtle">
+              {recentTx.map((t) => {
+                const isCredit = t.amountMin > 0;
+                return (
                   <li
-                    key={f.id}
-                    className="flex items-center justify-between gap-4 py-4"
+                    key={t.id}
+                    className="flex items-center justify-between gap-4 py-3.5"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2 text-text-strong">
-                        <span className="font-display text-lg font-semibold tabular">
-                          {f.depAirport}
-                        </span>
-                        <span className="text-text-subtle">→</span>
-                        <span className="font-display text-lg font-semibold tabular">
-                          {f.arrAirport}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 text-xs text-text-muted tabular">
-                        {formatDateFR(f.date)}
+                      <p className="truncate text-sm font-medium text-text">
+                        {COPY.txTypes[t.type]}
+                      </p>
+                      <p className="mt-0.5 text-xs tabular text-text-subtle">
+                        {formatDateTimeFR(t.createdAt)}
                       </p>
                     </div>
-                    <p className="font-display tabular text-base font-semibold text-text-strong">
-                      {formatHHMM(f.actualDurationMin)}
+                    <p
+                      className={`tabular text-base font-semibold ${
+                        isCredit ? "text-success" : "text-text"
+                      }`}
+                    >
+                      {formatHHMMSigned(t.amountMin)}
+                    </p>
+                    <p className="hidden tabular text-xs text-text-subtle sm:block">
+                      → {formatHHMM(t.balanceAfterMin)}
                     </p>
                   </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section aria-labelledby="recent-tx-h">
-            <h2
-              id="recent-tx-h"
-              className="font-display mb-4 text-2xl font-semibold tracking-tight text-text-strong"
-            >
-              {COPY.dashboard.recentTransactions}
-            </h2>
-            {recentTx.length === 0 ? (
-              <Card tone="sunken">
-                <p className="text-sm text-text-muted">
-                  {COPY.account.transactionsEmpty}
-                </p>
-              </Card>
-            ) : (
-              <ul className="divide-y divide-border-subtle border-y border-border-subtle">
-                {recentTx.map((t) => {
-                  const isCredit = t.amountMin > 0;
-                  return (
-                    <li
-                      key={t.id}
-                      className="flex items-center justify-between gap-3 py-3 text-sm"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium text-text">
-                          {COPY.txTypes[t.type]}
-                        </p>
-                        <p className="mt-0.5 text-xs text-text-subtle tabular">
-                          {formatDateTimeFR(t.createdAt)}
-                        </p>
-                      </div>
-                      <p
-                        className={`tabular font-semibold ${
-                          isCredit ? "text-success" : "text-text"
-                        }`}
-                      >
-                        {formatHHMMSigned(t.amountMin)}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        </div>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       </div>
     </AppShell>
+  );
+}
+
+type DashboardPackage = {
+  id: string;
+  name: string;
+  description: string | null;
+  priceCentsHT: number;
+  hdvMinutes: number;
+};
+
+function PackageRow({ pkg }: { pkg: DashboardPackage }) {
+  // Round to whole euros for the dashboard display per operator preference.
+  const priceFmt = (pkg.priceCentsHT / 100).toLocaleString("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+  });
+
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-4 py-5">
+      <div className="min-w-0 flex-1">
+        <h3 className="font-display text-xl font-semibold tracking-tight text-text-strong">
+          {pkg.name}
+        </h3>
+        <p className="mt-0.5 text-sm text-text-muted">
+          <span className="font-display tabular font-semibold text-text">
+            {formatHHMM(pkg.hdvMinutes)}
+          </span>
+          {pkg.description && (
+            <>
+              <span className="mx-2 text-text-subtle">·</span>
+              {pkg.description}
+            </>
+          )}
+        </p>
+      </div>
+      <div className="flex items-center gap-5">
+        <p className="font-display tabular text-2xl font-semibold tracking-tight text-text-strong">
+          {priceFmt}
+          <span className="ml-1 text-xs font-normal text-text-subtle">HT</span>
+        </p>
+        <form action={createCheckoutSession}>
+          <input type="hidden" name="packageId" value={pkg.id} />
+          <Button type="submit" variant="secondary" size="sm">
+            {COPY.dashboard.buy}
+          </Button>
+        </form>
+      </div>
+    </li>
   );
 }
