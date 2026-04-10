@@ -22,7 +22,7 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
     return (
       <dialog
         ref={ref}
-        className={`rounded-xl border border-border bg-surface-elevated p-6 text-text shadow-lg backdrop:bg-text/30 backdrop:backdrop-blur-sm ${className}`}
+        className={`fixed inset-0 m-auto rounded-xl border border-border bg-surface-elevated p-6 text-text shadow-lg backdrop:bg-text/30 backdrop:backdrop-blur-sm ${className}`}
       >
         {children}
       </dialog>

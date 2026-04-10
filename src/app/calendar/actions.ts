@@ -56,6 +56,9 @@ export async function createReservation(formData: FormData) {
   const [sh, sm] = parsed.data.startTime.split(":").map(Number);
   const [ehRaw, em] = parsed.data.endTime.split(":").map(Number);
   const startsAtUtc = parisLocalToUtc(parsed.data.startDate, sh, sm);
+  if (startsAtUtc < new Date()) {
+    redirect("/calendar?error=past");
+  }
   // TimeBlockPicker sends "24:00" for midnight end-of-day. Normalize to
   // 00:00 on the next calendar day before converting to UTC.
   let endDate = parsed.data.endDate;
@@ -86,7 +89,7 @@ export async function createReservation(formData: FormData) {
 
   revalidatePath("/calendar");
   revalidatePath("/dashboard");
-  redirect(`/calendar?date=${parsed.data.startDate}&booked=1`);
+  redirect(`/calendar?week=${parsed.data.startDate}&date=${parsed.data.startDate}&booked=1#calendrier`);
 }
 
 export async function cancelReservationAction(formData: FormData) {

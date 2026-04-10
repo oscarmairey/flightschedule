@@ -72,7 +72,7 @@ function toLocalParts(d: Date): {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
+    hourCycle: "h23",
   });
   const parts = fmt.formatToParts(d);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";

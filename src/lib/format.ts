@@ -23,7 +23,7 @@ const TIME_FMT = new Intl.DateTimeFormat(LOCALE, {
   timeZone: TZ,
   hour: "2-digit",
   minute: "2-digit",
-  hour12: false,
+  hourCycle: "h23",
 });
 
 const DATETIME_FMT = new Intl.DateTimeFormat(LOCALE, {
@@ -33,7 +33,7 @@ const DATETIME_FMT = new Intl.DateTimeFormat(LOCALE, {
   year: "numeric",
   hour: "2-digit",
   minute: "2-digit",
-  hour12: false,
+  hourCycle: "h23",
 });
 
 const WEEKDAY_FMT = new Intl.DateTimeFormat(LOCALE, {

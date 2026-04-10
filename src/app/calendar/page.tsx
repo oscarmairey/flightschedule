@@ -135,9 +135,11 @@ export default async function CalendarPage({
   const banner =
     sp.error === "overlap"
       ? { tone: "error" as const, msg: "Cette plage chevauche une réservation existante." }
-      : sp.error === "window"
-        ? { tone: "error" as const, msg: sp.msg ?? "Plage hors disponibilité." }
-        : sp.error === "negative_balance"
+      : sp.error === "past"
+        ? { tone: "error" as const, msg: "Impossible de réserver dans le passé." }
+        : sp.error === "window"
+          ? { tone: "error" as const, msg: sp.msg ?? "Plage hors disponibilité." }
+          : sp.error === "negative_balance"
           ? { tone: "error" as const, msg: "Votre solde HDV est négatif. Rechargez votre compte avant de réserver." }
           : sp.error === "late_cancel"
             ? { tone: "error" as const, msg: "Annulation impossible à moins de 24 h." }
@@ -259,7 +261,7 @@ export default async function CalendarPage({
             action={createReservation}
             className="mt-6 grid gap-6 sm:grid-cols-2"
           >
-            <div className="space-y-3">
+            <div key={`start-col-${defaultDate}-${defaultStartTime}`} className="space-y-3">
               <Label htmlFor="startDate" required>
                 Date de début
               </Label>
@@ -278,7 +280,7 @@ export default async function CalendarPage({
                 ariaLabel="Heure de début"
               />
             </div>
-            <div className="space-y-3">
+            <div key={`end-col-${defaultDate}-${defaultEndTime}`} className="space-y-3">
               <Label htmlFor="endDate" required>
                 Date de fin
               </Label>
@@ -306,23 +308,23 @@ export default async function CalendarPage({
         </Card>
 
         {/* 3. Week calendar grid */}
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div id="calendrier" className="mb-4 flex flex-wrap items-end justify-between gap-3 scroll-mt-6">
           <h2 className="font-display text-2xl font-semibold tracking-tight text-text-strong">
             {fmtWeekRangeFR(weekStart)}
           </h2>
           <div className="flex items-center gap-2">
-            <Link href={`/calendar?week=${prevWeek}`}>
+            <Link href={`/calendar?week=${prevWeek}`} scroll={false}>
               <Button variant="secondary" size="sm" aria-label="Semaine précédente">
                 <ChevronLeft className="h-4 w-4" aria-hidden="true" />
                 <span className="hidden sm:inline">Précédente</span>
               </Button>
             </Link>
-            <Link href={`/calendar?week=${thisWeek}`}>
+            <Link href={`/calendar?week=${thisWeek}`} scroll={false}>
               <Button variant="secondary" size="sm">
                 Aujourd&apos;hui
               </Button>
             </Link>
-            <Link href={`/calendar?week=${nextWeek}`}>
+            <Link href={`/calendar?week=${nextWeek}`} scroll={false}>
               <Button variant="secondary" size="sm" aria-label="Semaine suivante">
                 <span className="hidden sm:inline">Suivante</span>
                 <ChevronRight className="h-4 w-4" aria-hidden="true" />

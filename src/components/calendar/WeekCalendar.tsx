@@ -67,7 +67,7 @@ function toParisWallClock(d: Date): { yyyymmdd: string; minutes: number } {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
+    hourCycle: "h23",
   });
   const parts = fmt.formatToParts(d);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
@@ -335,6 +335,7 @@ export async function WeekCalendar({
                     <Link
                       key={dayIdx}
                       href={buildSlotHref(d.yyyymmdd, timeStr)}
+                      scroll={false}
                       aria-label={`Réserver le ${formatDateFR(d.date)} à ${timeStr}`}
                       title={`Disponible — réserver à ${timeStr}`}
                       className={`min-h-32 border-l border-border-subtle transition-colors hover:bg-surface-sunken/40 ${
