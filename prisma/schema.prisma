@@ -96,12 +96,6 @@ model Reservation {
   // is the source of truth and flights are immutable. See CLAUDE.md rule #7.
   autoCreatedFromFlight Boolean      @default(false)
 
-  // 1:N with Flight. V2: the FLIGHT is the sole unit of HDV consumption;
-  // the reservation is a pure scheduling block. A reservation may hold
-  // zero or more flights — multi-leg trips, plus auto-created singletons
-  // for on-the-go flight submissions. See CLAUDE.md rule #4.
-  flights         Flight[]
-
   transactions    Transaction[]
 
   createdAt       DateTime          @default(now())
@@ -117,12 +111,9 @@ model Flight {
   userId                   String       @db.Uuid
   user                     User         @relation(fields: [userId], references: [id])
 
-  // Every flight MUST reference a reservation (PRD §3.3 — 1:N: a reservation
-  // can hold any number of flights). For "on the go" flights without a
-  // pre-existing booking, the server auto-creates a reservation in the
-  // same DB transaction as the flight insert (`autoCreatedFromFlight=true`).
-  reservationId            String       @db.Uuid
-  reservation              Reservation  @relation(fields: [reservationId], references: [id])
+  // V2.2: flights are standalone log entries — no reservation link.
+  // The Flight→Reservation FK was dropped in the
+  // `drop_flight_reservation_link` migration.
 
   // Paris-local date of `engineStart`. Used for logbook listing + the YTD
   // aggregate. Cross-midnight flights (rare) keep the bloc-OFF date.
@@ -159,7 +150,6 @@ model Flight {
   updatedAt                DateTime     @updatedAt
 
   @@index([userId])
-  @@index([reservationId])
   @@index([date])
 }
 

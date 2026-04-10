@@ -105,50 +105,68 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  // Idempotency check (rule #5).
-  const existing = await prisma.transaction.findFirst({
-    where: {
-      reference: session.id,
-      type: "PACKAGE_PURCHASE",
+  // Idempotency + credit in a single Serializable transaction.
+  //
+  // LOAD-BEARING: the idempotency check MUST run inside the same
+  // transaction as the insert. Previously the check was outside the
+  // transaction, creating a TOCTOU race — two concurrent webhook
+  // deliveries could both pass the check before either inserted,
+  // resulting in double-crediting.
+  //
+  // Under Serializable isolation, Postgres aborts one of the concurrent
+  // transactions with a serialization failure (P2034). Stripe retries
+  // on the resulting 500, and the retry hits the idempotent skip path.
+  const credited = await prisma.$transaction(
+    async (tx) => {
+      // Idempotency check (rule #5).
+      const existing = await tx.transaction.findFirst({
+        where: {
+          reference: session.id,
+          type: "PACKAGE_PURCHASE",
+        },
+        select: { id: true },
+      });
+
+      if (existing) {
+        console.log(`[stripe-webhook] Idempotent skip — already credited ${session.id}`);
+        return false;
+      }
+
+      // Verify the user still exists and is active. We don't refund
+      // here — the operator handles edge cases via Stripe dashboard.
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, isActive: true },
+      });
+      if (!user) {
+        throw new Error(`User ${userId} not found for session ${session.id}`);
+      }
+      if (!user.isActive) {
+        console.warn(
+          `[stripe-webhook] Crediting deactivated user ${userId} (session ${session.id}). Operator should reconcile.`,
+        );
+      }
+
+      await applyHdvMutation(tx, {
+        userId,
+        type: "PACKAGE_PURCHASE",
+        amountMin: minutes,
+        reference: session.id,
+        performedById: userId,
+        // amount_total is in cents, VAT-inclusive (Stripe Tax). For
+        // "Montant dépensé" reporting (admin pilots table), this is what
+        // the pilot was actually charged.
+        priceCents: session.amount_total ?? null,
+      });
+
+      return true;
     },
-    select: { id: true },
-  });
-
-  if (existing) {
-    console.log(`[stripe-webhook] Idempotent skip — already credited ${session.id}`);
-    return;
-  }
-
-  await prisma.$transaction(async (tx) => {
-    // Verify the user still exists and is active. We don't refund
-    // here — the operator handles edge cases via Stripe dashboard.
-    const user = await tx.user.findUnique({
-      where: { id: userId },
-      select: { id: true, isActive: true },
-    });
-    if (!user) {
-      throw new Error(`User ${userId} not found for session ${session.id}`);
-    }
-    if (!user.isActive) {
-      console.warn(
-        `[stripe-webhook] Crediting deactivated user ${userId} (session ${session.id}). Operator should reconcile.`,
-      );
-    }
-
-    await applyHdvMutation(tx, {
-      userId,
-      type: "PACKAGE_PURCHASE",
-      amountMin: minutes,
-      reference: session.id,
-      performedById: userId,
-      // amount_total is in cents, VAT-inclusive (Stripe Tax). For
-      // "Montant dépensé" reporting (admin pilots table), this is what
-      // the pilot was actually charged.
-      priceCents: session.amount_total ?? null,
-    });
-  });
-
-  console.log(
-    `[stripe-webhook] Credited ${minutes} min to user ${userId} for session ${session.id}`,
+    { isolationLevel: "Serializable", maxWait: 5_000, timeout: 10_000 },
   );
+
+  if (credited) {
+    console.log(
+      `[stripe-webhook] Credited ${minutes} min to user ${userId} for session ${session.id}`,
+    );
+  }
 }

@@ -18,7 +18,7 @@
 
 ## The problem
 
-A group of private pilots share a Cessna 182 (F-GBQA) at a French aeroclub. Scheduling the aircraft, tracking flight hours, managing the shared account — all of it runs on a fragmented stack of Google Sheets, WhatsApp threads, paper logbooks, and Excel files. Who has the plane next Saturday? How many hours do I have left? Did someone log that flight from last week? Nobody is ever sure, and the answers live in four different places.
+A group of private pilots share an aircraft. Scheduling it, tracking flight hours, managing the shared account — all of it runs on a fragmented stack of Google Sheets, WhatsApp threads, paper logbooks, and Excel files. Who has the plane next Saturday? How many hours do I have left? Did someone log that flight from last week? Nobody is ever sure, and the answers live in four different places.
 
 FlightSchedule replaces that entire workflow with a single web app. Pilots book the aircraft, log flights with engine times, and monitor their HDV (flight-hour) balance — all from their phone at the airfield. Admins manage pilot accounts, configure availability, and sell hour packages through Stripe. One source of truth, in your pocket, in French.
 
@@ -259,7 +259,7 @@ Daily encrypted Postgres dumps to a separate R2 bucket:
 Cron on the host:
 
 ```cron
-0 3 * * * /opt/cavok/scripts/backup-db.sh >> /var/log/cavok-backup.log 2>&1
+0 3 * * * /opt/flightschedule/scripts/backup-db.sh >> /var/log/cavok-backup.log 2>&1
 ```
 
 ---

@@ -58,9 +58,8 @@ services:
       - .env
     ports:
       # Host port 6000 → container port 3000.
-      # 0.0.0.0 binding — publicly reachable on this server.
-      # Caddy proxies flightschedule.org → 127.0.0.1:6000.
-      - "0.0.0.0:6000:3000"
+      # 127.0.0.1 binding — only reachable via Caddy reverse proxy.
+      - "127.0.0.1:6000:3000"
     # No volumes mounted for the web service — the image is fully self-
     # contained. Source changes require `docker compose up -d --build`.
 

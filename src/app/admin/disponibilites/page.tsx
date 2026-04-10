@@ -177,7 +177,7 @@ export default async function AdminDisponibilitesPage({
             {COPY.nav.adminDisponibilites}
           </p>
           <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
-            Disponibilités du F-GBQA
+            Disponibilités de l'appareil
           </h1>
           <p className="mt-3 max-w-2xl text-base text-text-muted">
             Définissez d&apos;abord les <strong>périodes d&apos;ouverture</strong>{" "}

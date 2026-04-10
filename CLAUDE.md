@@ -1,6 +1,6 @@
 # FlightSchedule
 
-The app to easily manage the reservation schedule of your plane. Used by a small group of private pilots sharing a Cessna 182 (F-GBQA), replacing a fragmented Google Sheet + WhatsApp + paper logbook + Excel workflow with a single web app at **flightschedule.org**.
+The app to easily manage the reservation schedule of your plane. Used by pilots who share an aircraft, replacing a fragmented Google Sheet + WhatsApp + paper logbook + Excel workflow with a single web app at **flightschedule.org**.
 
 For full product scope, user flows, and feature details, see [PRD.md](./PRD.md).
 
@@ -344,7 +344,6 @@ The project rename history is **CAVOK Glass Cockpit → FlySchedule → FlightSc
 
 | Identifier                          | Where                       | Why it stayed                                                                                  |
 |-------------------------------------|-----------------------------|------------------------------------------------------------------------------------------------|
-| Working directory `/opt/cavok`      | filesystem                  | The deploy path is referenced by the `cavok-web` container CWD, the cron job in `crontab`, the systemd-managed Caddy config, and operator muscle memory. Move = coordinated downtime. |
 | Container `cavok-web` / `cavok-db`  | `docker-compose.yml`        | Cosmetic in `docker ps`, but `docker compose` keys identity by service+container name. A rename = `down` + `up`, scheduled.                             |
 | Volume `cavok_postgres_data`        | `docker-compose.yml`        | **Holds the live database.** Renaming the key would orphan it and create a new empty volume; recovery requires `external: true` re-binding.            |
 | Postgres user/db `cavok` / `cavok`  | `.env`, `POSTGRES_*`        | The schema and grants live in this DB. A rename is a `pg_dump` + reload + `DATABASE_URL` rotate.                                                        |
@@ -352,4 +351,4 @@ The project rename history is **CAVOK Glass Cockpit → FlySchedule → FlightSc
 | R2 bucket `cavok-db-backups`        | `scripts/backup-db.sh`      | Holds historical encrypted Postgres dumps. Same constraint as above.                                                                                    |
 | Image tag `cavok-web:latest`        | `docker-compose.yml`        | Local image name only — harmless. Will flip when the compose file is next touched.                                                                      |
 
-**Rule for the agent:** when working in this repo, treat the legacy `cavok-*` identifiers as opaque infrastructure handles, not branding. Do **not** propose mass renames as a cleanup pass — every one of them is a planned operation that needs operator coordination. If a future task explicitly schedules the cutover, the order is: stop traffic → `pg_dump` → recreate volume + DB under new names → restore → rotate `DATABASE_URL` → recreate R2 buckets + copy objects → rotate R2 keys → `docker compose down && up -d` with new container names → move `/opt/cavok` → update Caddy + cron → smoke test.
+**Rule for the agent:** when working in this repo, treat the legacy `cavok-*` identifiers as opaque infrastructure handles, not branding. Do **not** propose mass renames as a cleanup pass — every one of them is a planned operation that needs operator coordination. If a future task explicitly schedules the cutover, the order is: stop traffic → `pg_dump` → recreate volume + DB under new names → restore → rotate `DATABASE_URL` → recreate R2 buckets + copy objects → rotate R2 keys → `docker compose down && up -d` with new container names → update Caddy + cron → smoke test.

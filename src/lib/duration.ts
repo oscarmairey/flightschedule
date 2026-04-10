@@ -81,7 +81,7 @@ export function formatHHMMSigned(minutes: number): string {
  *   amber  : 120 ≤ balance ≤ 300
  *   green  : balance > 300
  */
-export type BalanceTier = "green" | "amber" | "red";
+export type BalanceTier = "green" | "amber" | "red" | "negative";
 
 export const BALANCE_THRESHOLDS = {
   RED_MAX_MIN: 120, // strictly less than this is red
@@ -89,6 +89,7 @@ export const BALANCE_THRESHOLDS = {
 } as const;
 
 export function balanceTier(minutes: number): BalanceTier {
+  if (minutes < 0) return "negative";
   if (minutes < BALANCE_THRESHOLDS.RED_MAX_MIN) return "red";
   if (minutes > BALANCE_THRESHOLDS.GREEN_MIN_MIN) return "green";
   return "amber";
@@ -107,6 +108,7 @@ export const BALANCE_TIER_CLASSES: Record<BalanceTier, string> = {
   green: "bg-success-soft text-success-soft-fg border-success-soft-border",
   amber: "bg-warning-soft text-warning-soft-fg border-warning-soft-border",
   red: "bg-danger-soft text-danger-soft-fg border-danger-soft-border",
+  negative: "bg-danger-soft text-danger-soft-fg border-danger-soft-border",
 };
 
 /**
@@ -119,6 +121,7 @@ export const BALANCE_TIER_FG_CLASSES: Record<BalanceTier, string> = {
   green: "text-success",
   amber: "text-warning",
   red: "text-danger",
+  negative: "text-danger",
 };
 
 /**
@@ -129,6 +132,7 @@ export const BALANCE_TIER_LABELS: Record<BalanceTier, string> = {
   green: "Solde confortable",
   amber: "Solde moyen",
   red: "Solde faible",
+  negative: "Solde négatif",
 };
 
 // ────────────────────────────────────────────────────────────────────

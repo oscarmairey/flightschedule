@@ -21,7 +21,7 @@
 #   ./scripts/backup-db.sh
 #
 # Cron (daily 03:00 Europe/Paris):
-#   0 3 * * * /opt/cavok/scripts/backup-db.sh >> /var/log/cavok-backup.log 2>&1
+#   0 3 * * * /opt/flightschedule/scripts/backup-db.sh >> /var/log/cavok-backup.log 2>&1
 #
 # CRITICAL: the bucket cavok-db-backups MUST be fully private (no custom
 # domain, no r2.dev URL). Same rule as the photo bucket.

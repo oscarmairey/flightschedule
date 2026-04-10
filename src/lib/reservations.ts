@@ -221,7 +221,6 @@ export async function cancelReservation(
     async (tx) => {
       const reservation = await tx.reservation.findUnique({
         where: { id: input.reservationId },
-        include: { flights: { select: { id: true } } },
       });
       if (!reservation) {
         throw new Error("Réservation introuvable");
@@ -234,9 +233,6 @@ export async function cancelReservation(
       }
       if (reservation.autoCreatedFromFlight) {
         throw new AutoCreatedReservationError();
-      }
-      if (reservation.flights.length > 0) {
-        throw new ReservationLockedError();
       }
 
       if (!input.isAdmin) {

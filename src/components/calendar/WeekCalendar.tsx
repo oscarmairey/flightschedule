@@ -241,7 +241,7 @@ export async function WeekCalendar({
                 <div
                   className={isToday ? "text-brand-soft-fg" : "text-text-subtle"}
                 >
-                  {DAY_LABELS_FR[d.date.getUTCDay()].slice(0, 3)}
+                  {DAY_LABELS_FR[new Date(`${d.yyyymmdd}T12:00:00Z`).getUTCDay()].slice(0, 3)}
                 </div>
                 <div
                   className={`font-display text-base font-semibold normal-case tracking-tight tabular ${

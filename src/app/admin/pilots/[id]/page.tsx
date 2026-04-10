@@ -23,6 +23,7 @@ import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
 import {
   adjustHdv,
+  promotePilotToAdmin,
   resetPilotPassword,
   togglePilotActive,
 } from "../actions";
@@ -37,6 +38,7 @@ export default async function PilotDetailPage({
     adjusted?: string;
     pwreset?: string;
     toggled?: string;
+    promoted?: string;
     error?: string;
   }>;
 }) {
@@ -66,12 +68,14 @@ export default async function PilotDetailPage({
         ? { tone: "success" as const, msg: "Solde HDV mis à jour." }
         : sp.pwreset === "1"
           ? { tone: "success" as const, msg: "Mot de passe réinitialisé. Email envoyé." }
-          : sp.toggled === "1"
-            ? {
-                tone: "success" as const,
-                msg: pilot.isActive ? "Compte réactivé." : "Compte désactivé.",
-              }
-            : sp.error === "bad_amount"
+          : sp.promoted === "1"
+            ? { tone: "success" as const, msg: "Pilote promu administrateur." }
+            : sp.toggled === "1"
+              ? {
+                  tone: "success" as const,
+                  msg: pilot.isActive ? "Compte réactivé." : "Compte désactivé.",
+                }
+              : sp.error === "bad_amount"
               ? {
                   tone: "error" as const,
                   msg: "Durée invalide. Format attendu : 1h30 ou 90.",
@@ -203,6 +207,14 @@ export default async function PilotDetailPage({
                 Réinitialiser le mot de passe
               </Button>
             </form>
+            {!isSelf && pilot.role !== "ADMIN" && (
+              <form action={promotePilotToAdmin}>
+                <input type="hidden" name="pilotId" value={pilot.id} />
+                <Button type="submit" variant="secondary">
+                  Promouvoir administrateur
+                </Button>
+              </form>
+            )}
             {!isSelf && (
               <form action={togglePilotActive}>
                 <input type="hidden" name="pilotId" value={pilot.id} />
@@ -268,7 +280,7 @@ export default async function PilotDetailPage({
                       {formatHHMMSigned(t.amountMin)}
                     </p>
                     <p className="tabular text-right text-xs text-text-subtle">
-                      → {formatHHMM(t.balanceAfterMin)}
+                      → {formatHHMM(t.balanceAfterMin ?? 0)}
                     </p>
                   </li>
                 );

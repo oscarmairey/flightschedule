@@ -10,7 +10,7 @@ import { ChevronLeft, ChevronRight, CalendarRange } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
-import { formatDateFR } from "@/lib/format";
+import { formatDateFR, formatDateTimeFR } from "@/lib/format";
 // `fmtWeekRangeFR` builds the H1 "13/04/2026 – 19/04/2026" string from
 // the Monday-anchored week start, using the canonical formatDateFR helper
 // (locked to fr-FR + Europe/Paris). Defined inline below; do not inline
@@ -23,7 +23,9 @@ import { Label } from "@/components/ui/Label";
 import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
 import { WeekCalendar } from "@/components/calendar/WeekCalendar";
-import { createReservation, cancelReservationAction } from "./actions";
+import { CancelReservationButton } from "@/components/calendar/CancelReservationButton";
+import { TimeBlockPicker, type TimeBlock } from "@/components/calendar/TimeBlockPicker";
+import { createReservation } from "./actions";
 
 const TZ = "Europe/Paris";
 
@@ -112,12 +114,12 @@ export default async function CalendarPage({
     day: "2-digit",
   }).format(now);
   const defaultDate = preselectDate ?? todayParisDate;
-  const defaultStartTime = preselectTime ?? "09:00";
-  // Default end = start + 3h. Wraps "21:00" → "00:00" — the server treats
-  // a same-date 00:00 end as next-day midnight (24:00).
-  const [dh, dm] = defaultStartTime.split(":").map(Number);
-  const defaultEndH = (dh + 3) % 24;
-  const defaultEndTime = `${defaultEndH.toString().padStart(2, "0")}:${dm.toString().padStart(2, "0")}`;
+  const defaultStartTime = (preselectTime ?? "09:00") as TimeBlock;
+  // Default end = start + 3h. "21:00" + 3 = "24:00" (midnight end-of-day).
+  const [dh] = defaultStartTime.split(":").map(Number);
+  const defaultEndTime: TimeBlock = (dh + 3 >= 24
+    ? "24:00"
+    : `${(dh + 3).toString().padStart(2, "0")}:00`) as TimeBlock;
 
   // Pilot's confirmed upcoming reservations (for the cancellation list)
   const upcoming = await prisma.reservation.findMany({
@@ -135,22 +137,24 @@ export default async function CalendarPage({
       ? { tone: "error" as const, msg: "Cette plage chevauche une réservation existante." }
       : sp.error === "window"
         ? { tone: "error" as const, msg: sp.msg ?? "Plage hors disponibilité." }
-        : sp.error === "late_cancel"
-          ? { tone: "error" as const, msg: "Annulation impossible à moins de 24 h." }
-          : sp.error === "locked"
-            ? { tone: "error" as const, msg: "Réservation verrouillée par un vol existant." }
-            : sp.error === "auto_created"
-              ? {
-                  tone: "error" as const,
-                  msg: "Cette réservation a été créée par un vol et ne peut pas être annulée.",
-                }
-              : sp.error === "invalid"
-                ? { tone: "error" as const, msg: COPY.errors.invalidInput }
-                : sp.booked === "1"
-                  ? { tone: "success" as const, msg: "Réservation confirmée." }
-                  : sp.cancelled === "1"
-                    ? { tone: "success" as const, msg: "Réservation annulée." }
-                    : null;
+        : sp.error === "negative_balance"
+          ? { tone: "error" as const, msg: "Votre solde HDV est négatif. Rechargez votre compte avant de réserver." }
+          : sp.error === "late_cancel"
+            ? { tone: "error" as const, msg: "Annulation impossible à moins de 24 h." }
+            : sp.error === "locked"
+              ? { tone: "error" as const, msg: "Réservation verrouillée par un vol existant." }
+              : sp.error === "auto_created"
+                ? {
+                    tone: "error" as const,
+                    msg: "Cette réservation a été créée par un vol et ne peut pas être annulée.",
+                  }
+                : sp.error === "invalid"
+                  ? { tone: "error" as const, msg: COPY.errors.invalidInput }
+                  : sp.booked === "1"
+                    ? { tone: "success" as const, msg: "Réservation confirmée." }
+                    : sp.cancelled === "1"
+                      ? { tone: "success" as const, msg: "Réservation annulée." }
+                      : null;
 
   const buildSlotHref = (date: string, time: string) =>
     `/calendar?week=${fmtWeekStartParam(weekStart)}&slot=${date}T${time}`;
@@ -180,18 +184,12 @@ export default async function CalendarPage({
           </div>
         )}
 
-        {/* 1. Upcoming reservations */}
-        <section className="mb-12">
-          <h2 className="font-display mb-4 text-2xl font-semibold tracking-tight text-text-strong">
-            Mes réservations à venir
-          </h2>
-          {upcoming.length === 0 ? (
-            <Card tone="sunken">
-              <p className="text-sm text-text-muted">
-                Aucune réservation à venir. Réservez un créneau ci-dessous.
-              </p>
-            </Card>
-          ) : (
+        {/* 1. Upcoming reservations — hidden when empty */}
+        {upcoming.length > 0 && (
+          <section className="mb-12">
+            <h2 className="font-display mb-4 text-2xl font-semibold tracking-tight text-text-strong">
+              Mes réservations à venir
+            </h2>
             <ul className="divide-y divide-border-subtle border-y border-border-subtle">
               {upcoming.map((r) => {
                 const cutoff = new Date(
@@ -227,12 +225,10 @@ export default async function CalendarPage({
                       </p>
                     </div>
                     {cancellable ? (
-                      <form action={cancelReservationAction}>
-                        <input type="hidden" name="reservationId" value={r.id} />
-                        <Button type="submit" variant="ghost" size="sm">
-                          Annuler
-                        </Button>
-                      </form>
+                      <CancelReservationButton
+                        reservationId={r.id}
+                        startsAtLabel={formatDateTimeFR(r.startsAt)}
+                      />
                     ) : r.autoCreatedFromFlight ? (
                       <span className="text-xs italic text-text-subtle">
                         Réservation liée à un vol
@@ -246,8 +242,8 @@ export default async function CalendarPage({
                 );
               })}
             </ul>
-          )}
-        </section>
+          </section>
+        )}
 
         {/* 2. New reservation form — always visible */}
         <Card className="mb-12" tone="brand">
@@ -257,13 +253,13 @@ export default async function CalendarPage({
           <p className="mt-1 text-sm text-text-muted">
             Choisissez la date et l&apos;heure de début ainsi que de fin. Les
             créneaux sont alignés sur des blocs de 3 heures (durée minimum
-            3 h, maximum 12 h).
+            3 h).
           </p>
           <form
             action={createReservation}
-            className="mt-6 grid gap-4 sm:grid-cols-4"
+            className="mt-6 grid gap-6 sm:grid-cols-2"
           >
-            <div className="space-y-1.5">
+            <div className="space-y-3">
               <Label htmlFor="startDate" required>
                 Date de début
               </Label>
@@ -275,22 +271,14 @@ export default async function CalendarPage({
                 required
                 className="tabular"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="startTime" required>
-                Heure de début
-              </Label>
-              <Input
-                id="startTime"
+              <Label required>Heure de début</Label>
+              <TimeBlockPicker
                 name="startTime"
-                type="time"
-                step="10800"
                 defaultValue={defaultStartTime}
-                required
-                className="tabular"
+                ariaLabel="Heure de début"
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-3">
               <Label htmlFor="endDate" required>
                 Date de fin
               </Label>
@@ -302,22 +290,14 @@ export default async function CalendarPage({
                 required
                 className="tabular"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="endTime" required>
-                Heure de fin
-              </Label>
-              <Input
-                id="endTime"
+              <Label required>Heure de fin</Label>
+              <TimeBlockPicker
                 name="endTime"
-                type="time"
-                step="10800"
                 defaultValue={defaultEndTime}
-                required
-                className="tabular"
+                ariaLabel="Heure de fin"
               />
             </div>
-            <div className="sm:col-span-4">
+            <div className="sm:col-span-2">
               <Button type="submit" size="lg">
                 Réserver
               </Button>

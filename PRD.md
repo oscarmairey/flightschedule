@@ -12,7 +12,7 @@
 
 ### 1.1 Context
 
-FlightSchedule is built around a single Cessna 182 (F-GBQA) shared among a small group of private pilots. Current operations rely on a fragmented patchwork:
+FlightSchedule is built for small groups of private pilots who share an aircraft. Current operations rely on a fragmented patchwork:
 
 - **Reservations:** Google Sheet with half-day blocks, updated biannually by the administrator
 - **Communication:** WhatsApp group
@@ -44,7 +44,7 @@ See Section 9 for the explicit out-of-scope list. V1 prioritizes replacing curre
 
 ### 2.1 Pilot (Standard User)
 
-**Profile:** Licensed private pilot authorized to fly F-GBQA.
+**Profile:** Licensed private pilot authorized to fly the shared aircraft.
 
 **Capabilities:**
 - Purchase HDV packages via Stripe

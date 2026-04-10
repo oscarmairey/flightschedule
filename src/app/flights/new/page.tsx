@@ -15,7 +15,7 @@
 // "Mes vols" doesn't need a separate route in the nav.
 
 import Link from "next/link";
-import { PencilLine, Plus } from "lucide-react";
+import { PencilLine } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
@@ -23,7 +23,7 @@ import { formatDateFR, formatDateTimeFR, parisLocalDateString } from "@/lib/form
 import { formatHHMM } from "@/lib/duration";
 import { presignGetUrl } from "@/lib/r2";
 import { COMMON_AIRPORTS } from "@/lib/airports";
-import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -32,47 +32,20 @@ import { AppShell } from "@/components/AppShell";
 import { PhotoUpload } from "@/components/flights/PhotoUpload";
 import { submitFlight } from "./actions";
 
-const TZ = "Europe/Paris";
-
 export default async function NewFlightPage({
   searchParams,
 }: {
-  searchParams: Promise<{ reservation?: string; error?: string; msg?: string; added?: string }>;
+  searchParams: Promise<{ error?: string; msg?: string; added?: string }>;
 }) {
   const session = await requireSession();
   const sp = await searchParams;
 
-  // Reservations the pilot can attach a flight to: own + confirmed +
-  // already started. The dropdown surfaces the current count of attached
-  // flights so the pilot knows when they're adding to an existing slot.
-  // Auto-created reservations are filtered out — they always have exactly
-  // one flight referencing them already.
-  const [candidates, flightHistory] = await Promise.all([
-    prisma.reservation.findMany({
-      where: {
-        userId: session.user.id,
-        status: "CONFIRMED",
-        startsAt: { lte: new Date() },
-        autoCreatedFromFlight: false,
-      },
-      orderBy: { startsAt: "desc" },
-      take: 20,
-      include: { _count: { select: { flights: true } } },
-    }),
-    prisma.flight.findMany({
-      where: { userId: session.user.id },
-      orderBy: { date: "desc" },
-      take: 100,
-    }),
-  ]);
+  const flightHistory = await prisma.flight.findMany({
+    where: { userId: session.user.id },
+    orderBy: { date: "desc" },
+    take: 100,
+  });
 
-  // Pre-select either the requested reservation or the most recent
-  // candidate; falls back to "onthego" when there are none.
-  const preselectedReservationId =
-    candidates.find((r) => r.id === sp.reservation)?.id ?? candidates[0]?.id;
-  const defaultSelection = preselectedReservationId ?? "onthego";
-  // Default the flight date to today (Paris-local). Server overrides this
-  // with the reservation's date when one is selected.
   const defaultFlightDate = parisLocalDateString(new Date());
 
   // Generate signed GET URLs for all photos in the history batch.
@@ -102,15 +75,11 @@ export default async function NewFlightPage({
         ? "Photo invalide ou n'appartenant pas à votre compte."
         : sp.error === "photo_missing"
           ? "Une photo n'a pas été trouvée sur le serveur. Réessayez."
-          : sp.error === "bad_reservation"
-            ? "Réservation invalide."
-            : sp.error === "engine"
-              ? sp.msg ?? "Heures bloc OFF / bloc ON invalides."
-              : sp.error === "cross_pilot"
-                ? "Conflit avec une réservation d'un autre pilote — contactez l'administrateur."
-                : sp.error === "invalid"
-                  ? COPY.errors.invalidInput
-                  : null;
+          : sp.error === "engine"
+            ? sp.msg ?? "Heures bloc OFF / bloc ON invalides."
+            : sp.error === "invalid"
+              ? COPY.errors.invalidInput
+              : null;
 
   const justAdded = sp.added === "1";
 
@@ -150,59 +119,6 @@ export default async function NewFlightPage({
         )}
 
         <form action={submitFlight} className="space-y-6">
-          {/* Reservation selector — single dropdown */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Réservation</CardTitle>
-              <CardDescription>
-                Rattachez ce vol à une de vos réservations confirmées, ou
-                choisissez « Vol sans réservation préalable » : une
-                réservation sera alors créée automatiquement à partir des
-                heures bloc OFF / bloc ON.
-              </CardDescription>
-            </CardHeader>
-            <div>
-              <Label htmlFor="reservationSelection" required>
-                Réservation
-              </Label>
-              <select
-                id="reservationSelection"
-                name="reservationSelection"
-                defaultValue={defaultSelection}
-                required
-                className="mt-1.5 block w-full min-h-11 rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand focus:outline-none"
-              >
-                <option value="onthego">— {COPY.flight.modeOnTheGo} —</option>
-                {candidates.map((r) => {
-                  const existing = r._count.flights;
-                  return (
-                    <option key={r.id} value={r.id}>
-                      {formatDateFR(r.startsAt)} ·{" "}
-                      {new Intl.DateTimeFormat("fr-FR", {
-                        timeZone: TZ,
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }).format(r.startsAt)}
-                      {" – "}
-                      {new Intl.DateTimeFormat("fr-FR", {
-                        timeZone: TZ,
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }).format(r.endsAt)}
-                      {existing > 0
-                        ? ` · ${existing} vol${existing > 1 ? "s" : ""} déjà saisi${existing > 1 ? "s" : ""}`
-                        : ""}
-                    </option>
-                  );
-                })}
-              </select>
-              <p className="mt-2 text-xs text-text-subtle">
-                Si vous choisissez une réservation, la date du vol est
-                reprise automatiquement.
-              </p>
-            </div>
-          </Card>
-
           <Card>
             <CardHeader>
               <CardTitle>Vol</CardTitle>
@@ -221,7 +137,7 @@ export default async function NewFlightPage({
                   className="tabular"
                 />
                 <p className="text-xs text-text-subtle">
-                  Ignorée si une réservation est sélectionnée ci-dessus.
+                  Date à laquelle le vol a eu lieu.
                 </p>
               </div>
 
@@ -317,19 +233,12 @@ export default async function NewFlightPage({
                   className="block w-full rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand focus:outline-none"
                 />
               </div>
-            </div>
-          </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Photos du carnet de bord</CardTitle>
-              <CardDescription>
-                0 à 5 photos (facultatif). Uploadées directement sur le
-                stockage privé Cloudflare R2 — le serveur ne voit jamais les
-                fichiers.
-              </CardDescription>
-            </CardHeader>
-            <PhotoUpload name="photoKeys" />
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Photos du vol</Label>
+                <PhotoUpload name="photoKeys" />
+              </div>
+            </div>
           </Card>
 
           <div className="flex justify-end">
@@ -394,15 +303,6 @@ export default async function NewFlightPage({
                           <span className="mx-1.5">·</span>
                           saisi le {formatDateTimeFR(f.createdAt)}
                         </p>
-                      </div>
-                      <div className="shrink-0">
-                        <Link
-                          href={`/flights/new?reservation=${f.reservationId}`}
-                          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text-muted shadow-xs transition-colors hover:border-brand hover:text-brand"
-                        >
-                          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                          Ajouter un vol
-                        </Link>
                       </div>
                     </div>
 

@@ -69,8 +69,8 @@ export default async function DashboardPage({
   const ytdMin = ytdAgg._sum.actualDurationMin ?? 0;
   const allTimeMin = allTimeAgg._sum.actualDurationMin ?? 0;
 
-  const balanceHours = Math.floor(Math.max(balance, 0) / 60);
-  const balanceMinutes = Math.max(balance, 0) % 60;
+  const balanceHours = Math.floor(Math.abs(balance) / 60);
+  const balanceMinutes = Math.abs(balance) % 60;
   const balanceSign = balance < 0 ? "−" : "";
 
   const errorBanner =
@@ -128,8 +128,9 @@ export default async function DashboardPage({
                 </span>
               </p>
               <p className="mt-4 max-w-sm text-sm leading-relaxed text-text-muted">
-                Heures de vol disponibles. Réservez un créneau ou achetez un
-                forfait pour recharger votre compte.
+                {balance < 0
+                  ? "Votre solde est négatif. Rechargez votre compte pour pouvoir réserver."
+                  : "Heures de vol disponibles. Réservez un créneau ou achetez un forfait pour recharger votre compte."}
               </p>
             </div>
           </Card>
@@ -239,7 +240,7 @@ export default async function DashboardPage({
                       {formatHHMMSigned(t.amountMin)}
                     </p>
                     <p className="hidden tabular text-xs text-text-subtle sm:block">
-                      → {formatHHMM(t.balanceAfterMin)}
+                      → {formatHHMM(t.balanceAfterMin ?? 0)}
                     </p>
                   </li>
                 );

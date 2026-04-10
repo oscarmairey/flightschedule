@@ -5,6 +5,7 @@
 .env.production
 .env.development
 !.env.example
+.claude/settings.local.json
 
 # ─── Dependencies ───────────────────────────────────────────
 node_modules/

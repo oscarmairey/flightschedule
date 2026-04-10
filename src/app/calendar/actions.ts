@@ -9,6 +9,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { prisma } from "@/lib/db";
 import { requireSession, requireAdmin } from "@/lib/session";
 import {
   bookReservation,
@@ -33,6 +34,15 @@ const BookSchema = z.object({
 
 export async function createReservation(formData: FormData) {
   const session = await requireSession();
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { hdvBalanceMin: true },
+  });
+  if ((user?.hdvBalanceMin ?? 0) < 0) {
+    redirect("/calendar?error=negative_balance");
+  }
+
   const parsed = BookSchema.safeParse({
     startDate: formData.get("startDate"),
     startTime: formData.get("startTime"),
@@ -44,14 +54,19 @@ export async function createReservation(formData: FormData) {
   }
 
   const [sh, sm] = parsed.data.startTime.split(":").map(Number);
-  const [eh, em] = parsed.data.endTime.split(":").map(Number);
+  const [ehRaw, em] = parsed.data.endTime.split(":").map(Number);
   const startsAtUtc = parisLocalToUtc(parsed.data.startDate, sh, sm);
-  let endsAtUtc = parisLocalToUtc(parsed.data.endDate, eh, em);
-  // Treat end "00:00" with same date as start as end-of-day (24:00).
-  // Lets the calendar 24h grid express slots like 21:00–24:00.
-  if (endsAtUtc <= startsAtUtc && eh === 0 && em === 0) {
-    endsAtUtc = new Date(endsAtUtc.getTime() + 24 * 60 * 60 * 1000);
+  // TimeBlockPicker sends "24:00" for midnight end-of-day. Normalize to
+  // 00:00 on the next calendar day before converting to UTC.
+  let endDate = parsed.data.endDate;
+  let eh = ehRaw;
+  if (eh === 24) {
+    eh = 0;
+    const next = new Date(`${endDate}T12:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    endDate = next.toISOString().slice(0, 10);
   }
+  const endsAtUtc = parisLocalToUtc(endDate, eh, em);
 
   try {
     await bookReservation({

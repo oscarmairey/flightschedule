@@ -172,6 +172,39 @@ export async function resetPilotPassword(formData: FormData) {
   redirect(`/admin/pilots/${pilot.id}?pwreset=1`);
 }
 
+export async function promotePilotToAdmin(formData: FormData) {
+  const admin = await requireAdmin();
+  const parsed = PilotIdOnlySchema.safeParse({ pilotId: formData.get("pilotId") });
+  if (!parsed.success) redirect("/admin/pilots");
+
+  if (parsed.data.pilotId === admin.user.id) {
+    redirect(`/admin/pilots/${parsed.data.pilotId}?error=invalid`);
+  }
+
+  const pilot = await prisma.user.findUnique({
+    where: { id: parsed.data.pilotId },
+    select: { id: true, email: true, role: true },
+  });
+  if (!pilot) redirect("/admin/pilots");
+
+  if (pilot.role === "ADMIN") {
+    redirect(`/admin/pilots/${pilot.id}?error=invalid`);
+  }
+
+  await prisma.user.update({
+    where: { id: pilot.id },
+    data: { role: "ADMIN" },
+  });
+
+  console.log(
+    `[admin/pilots] ${admin.user.email} promoted ${pilot.email} to admin`,
+  );
+
+  revalidatePath("/admin/pilots");
+  revalidatePath(`/admin/pilots/${pilot.id}`);
+  redirect(`/admin/pilots/${pilot.id}?promoted=1`);
+}
+
 export async function togglePilotActive(formData: FormData) {
   const admin = await requireAdmin();
   const parsed = PilotIdOnlySchema.safeParse({ pilotId: formData.get("pilotId") });
