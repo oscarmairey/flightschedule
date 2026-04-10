@@ -42,6 +42,7 @@ export const COPY = {
     adminPilots: "Pilotes",
     adminDisponibilites: "Disponibilités",
     adminTarifs: "Tarifs",
+    adminVirements: "Virements",
     signOut: "Déconnexion",
   },
 
@@ -93,6 +94,48 @@ export const COPY = {
     cancelBody: "Vous pouvez réessayer à tout moment.",
   },
 
+  payment: {
+    // Modal shell
+    modalTitle: "Recharger mon solde",
+    tabCard: "Carte bancaire",
+    tabBank: "Virement bancaire",
+    close: "Fermer",
+
+    // Card tab
+    cardPay: "Payer",
+    cardProcessing: "Paiement en cours…",
+    cardSuccessTitle: "Paiement validé",
+    cardSuccessBody: "Votre solde HDV vient d'être crédité.",
+    cardErrorTitle: "Le paiement a échoué.",
+    cardSaveLabel: "Enregistrer cette carte pour mes prochains paiements",
+    cardUseAnother: "Utiliser une autre carte",
+
+    // Bank tab
+    bankProcessing: "Chargement des coordonnées bancaires…",
+    bankDetailsTitle: "Virement à effectuer",
+    bankReferenceLabel: "Référence à indiquer dans le virement",
+    bankReferenceCopy: "Copier",
+    bankReferenceCopied: "Copié",
+    bankHolderLabel: "Titulaire",
+    bankIbanLabel: "IBAN",
+    bankBicLabel: "BIC",
+    bankBankNameLabel: "Banque",
+    bankAmountLabel: "Montant",
+    bankDetailsHint:
+      "Effectuez le virement depuis votre banque en indiquant impérativement la référence ci-dessus.",
+    bankKeepOpenWarning:
+      "Cliquez sur « J'ai effectué le virement » uniquement après avoir validé l'opération depuis votre banque.",
+    bankRegister: "J'ai effectué le virement",
+    bankRegisterProcessing: "Enregistrement…",
+    bankRegisteredTitle: "Virement enregistré",
+    bankRegisteredBody:
+      "Votre solde sera crédité dès que l'administrateur aura validé la réception du virement.",
+    bankRegisteredRefChanged:
+      "Votre référence a été mise à jour pour éviter une collision. Utilisez le code suivant dans votre virement :",
+    bankNotConfigured:
+      "Aucun compte bancaire n'est configuré pour le moment. Contactez l'administrateur.",
+  },
+
   flight: {
     blocOff: "Heure bloc OFF",
     blocOn: "Heure bloc ON",
@@ -106,6 +149,7 @@ export const COPY = {
     FLIGHT_DEBIT: "Vol",
     CANCELLATION_REFUND: "Remboursement",
     ADMIN_ADJUSTMENT: "Ajustement administrateur",
+    BANK_TRANSFER: "Virement bancaire",
   },
 
   errors: {

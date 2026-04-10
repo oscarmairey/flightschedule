@@ -69,6 +69,9 @@ export async function POST(request: NextRequest) {
       case "checkout.session.completed":
         await handleCheckoutCompleted(event.data.object);
         break;
+      case "payment_intent.succeeded":
+        await handlePaymentIntentSucceeded(event.data.object);
+        break;
       default:
         console.log(`[stripe-webhook] Ignoring event ${event.type}`);
         break;
@@ -167,6 +170,88 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   if (credited) {
     console.log(
       `[stripe-webhook] Credited ${minutes} min to user ${userId} for session ${session.id}`,
+    );
+  }
+}
+
+/**
+ * Safety net for inline card payments (PayPackageButton modal).
+ *
+ * The happy path credits HDV via `finalizeCardPayment` server action on
+ * the dashboard — the webhook is only reached when the pilot closes the
+ * browser mid-confirm, or when `finalizeCardPayment` throws. Both paths
+ * use the same idempotency key (PaymentIntent ID as
+ * `Transaction.reference`), so the webhook can fire any number of
+ * times without double-crediting.
+ *
+ * The metadata shape is set by `createCardPaymentIntent` — it mirrors
+ * the Checkout Session metadata (flyUserId / flyHdvMin / flyPackageId)
+ * so the two handlers share the same logic.
+ */
+async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
+  const userId = pi.metadata?.flyUserId;
+  const minutesRaw = pi.metadata?.flyHdvMin;
+
+  if (!userId || !minutesRaw) {
+    // Not one of ours — could be a PI created outside the app (e.g.
+    // from the Stripe dashboard during testing). Ignore silently.
+    console.log(
+      `[stripe-webhook] Ignoring payment_intent ${pi.id} — missing FS metadata`,
+    );
+    return;
+  }
+
+  const minutes = Number(minutesRaw);
+  if (!Number.isInteger(minutes) || minutes <= 0) {
+    console.error(
+      `[stripe-webhook] Invalid flyHdvMin on ${pi.id}: ${minutesRaw}`,
+    );
+    return;
+  }
+
+  const credited = await prisma.$transaction(
+    async (tx) => {
+      const existing = await tx.transaction.findFirst({
+        where: { reference: pi.id, type: "PACKAGE_PURCHASE" },
+        select: { id: true },
+      });
+      if (existing) {
+        console.log(
+          `[stripe-webhook] Idempotent skip — already credited ${pi.id}`,
+        );
+        return false;
+      }
+
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, isActive: true },
+      });
+      if (!user) {
+        throw new Error(`User ${userId} not found for payment_intent ${pi.id}`);
+      }
+      if (!user.isActive) {
+        console.warn(
+          `[stripe-webhook] Crediting deactivated user ${userId} (pi ${pi.id}). Operator should reconcile.`,
+        );
+      }
+
+      await applyHdvMutation(tx, {
+        userId,
+        type: "PACKAGE_PURCHASE",
+        amountMin: minutes,
+        reference: pi.id,
+        performedById: userId,
+        priceCents: pi.amount_received ?? pi.amount,
+      });
+
+      return true;
+    },
+    { isolationLevel: "Serializable", maxWait: 5_000, timeout: 10_000 },
+  );
+
+  if (credited) {
+    console.log(
+      `[stripe-webhook] Credited ${minutes} min to user ${userId} for payment_intent ${pi.id}`,
     );
   }
 }

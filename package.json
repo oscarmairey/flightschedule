@@ -21,6 +21,8 @@
     "@aws-sdk/s3-request-presigner": "^3.1025.0",
     "@prisma/adapter-pg": "^7.6.0",
     "@prisma/client": "^7.6.0",
+    "@stripe/react-stripe-js": "^6.1.0",
+    "@stripe/stripe-js": "^9.1.0",
     "bcryptjs": "^3.0.3",
     "lucide-react": "^1.7.0",
     "next": "16.2.2",

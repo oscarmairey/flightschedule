@@ -62,6 +62,16 @@ COPY . .
 # Generate Prisma client (writes to src/generated/prisma per schema.prisma)
 RUN pnpm db:generate
 
+# NEXT_PUBLIC_* must be present at BUILD time — Next.js inlines them into
+# the client JavaScript bundle during `next build`. They cannot be
+# overridden at runtime. docker-compose's `env_file: .env` only injects
+# vars into the runtime container, so these have to come in as build
+# ARGs. See docker-compose.yml `web.build.args`.
+ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ARG NEXT_PUBLIC_APP_URL
+ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+
 # Build Next.js with standalone output. This produces:
 #   .next/standalone/  — self-contained server (server.js, package.json, node_modules subset)
 #   .next/static/      — static assets

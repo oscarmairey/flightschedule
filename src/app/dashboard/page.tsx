@@ -20,10 +20,9 @@ import {
 import { formatDateTimeFR } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
-import { createCheckoutSession } from "./actions";
+import { PayPackageButton } from "@/components/dashboard/PayPackageButton";
 
 export default async function DashboardPage({
   searchParams,
@@ -35,31 +34,77 @@ export default async function DashboardPage({
 
   const startOfYear = new Date(`${new Date().getFullYear()}-01-01T00:00:00Z`);
 
-  const [user, recentTx, ytdAgg, allTimeAgg, totalFlights, packages] =
-    await Promise.all([
-      prisma.user.findUnique({
-        where: { id: session.user.id },
-        select: { hdvBalanceMin: true, name: true, role: true },
-      }),
-      prisma.transaction.findMany({
-        where: { userId: session.user.id },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      }),
-      prisma.flight.aggregate({
-        where: { userId: session.user.id, date: { gte: startOfYear } },
-        _sum: { actualDurationMin: true },
-      }),
-      prisma.flight.aggregate({
-        where: { userId: session.user.id },
-        _sum: { actualDurationMin: true },
-      }),
-      prisma.flight.count({ where: { userId: session.user.id } }),
-      prisma.package.findMany({
-        where: { isActive: true },
-        orderBy: { sortOrder: "asc" },
-      }),
-    ]);
+  // Bank transfers visible on the dashboard: always PENDING ones (action
+  // for the pilot — "wait for admin"), plus REJECTED ones from the last
+  // 30 days (so the pilot sees the admin's refusal and the reason).
+  // VALIDATED transfers disappear from this list — their resulting
+  // Transaction row surfaces in the history section below instead.
+  const thirtyDaysAgo = new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const [
+    user,
+    recentTx,
+    ytdAgg,
+    allTimeAgg,
+    totalFlights,
+    packages,
+    bankTransfers,
+  ] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { hdvBalanceMin: true, name: true, role: true },
+    }),
+    prisma.transaction.findMany({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    prisma.flight.aggregate({
+      where: { userId: session.user.id, date: { gte: startOfYear } },
+      _sum: { actualDurationMin: true },
+    }),
+    prisma.flight.aggregate({
+      where: { userId: session.user.id },
+      _sum: { actualDurationMin: true },
+    }),
+    prisma.flight.count({ where: { userId: session.user.id } }),
+    prisma.package.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.bankTransfer.findMany({
+      where: {
+        userId: session.user.id,
+        OR: [
+          { status: "PENDING" },
+          { status: "REJECTED", reviewedAt: { gte: thirtyDaysAgo } },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  // Merge ledger transactions + in-flight bank transfers into a single
+  // history feed, sorted by createdAt desc. A VALIDATED bank transfer
+  // already shows up as a PACKAGE_PURCHASE row via `recentTx`, so the
+  // `bankTransfers` query above is scoped to PENDING + recently
+  // REJECTED to avoid double-rendering the same event.
+  type HistoryRow =
+    | { kind: "tx"; createdAt: Date; data: (typeof recentTx)[number] }
+    | { kind: "bt"; createdAt: Date; data: (typeof bankTransfers)[number] };
+
+  const historyRows: HistoryRow[] = [
+    ...recentTx.map<HistoryRow>((t) => ({
+      kind: "tx",
+      createdAt: t.createdAt,
+      data: t,
+    })),
+    ...bankTransfers.map<HistoryRow>((bt) => ({
+      kind: "bt",
+      createdAt: bt.createdAt,
+      data: bt,
+    })),
+  ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
   const balance = user?.hdvBalanceMin ?? 0;
   const tier = balanceTier(balance);
@@ -204,12 +249,16 @@ export default async function DashboardPage({
           )}
         </section>
 
-        {/* Historique des mouvements */}
+        {/* Historique des mouvements — regular ledger transactions MERGED
+            with in-flight bank transfers (PENDING / recently REJECTED). A
+            VALIDATED bank transfer becomes a regular PACKAGE_PURCHASE
+            transaction row via the normal ledger path, so we filter out
+            non-pending/rejected states here to avoid double-rendering. */}
         <section className="mt-14">
           <h2 className="font-display mb-4 text-2xl font-semibold tracking-tight text-text-strong">
             {COPY.dashboard.transactions}
           </h2>
-          {recentTx.length === 0 ? (
+          {historyRows.length === 0 ? (
             <Card tone="sunken">
               <p className="text-sm text-text-muted">
                 {COPY.dashboard.transactionsEmpty}
@@ -217,30 +266,79 @@ export default async function DashboardPage({
             </Card>
           ) : (
             <ul className="divide-y divide-border-subtle border-y border-border-subtle">
-              {recentTx.map((t) => {
-                const isCredit = t.amountMin > 0;
+              {historyRows.map((row) => {
+                if (row.kind === "tx") {
+                  const t = row.data;
+                  const isCredit = t.amountMin > 0;
+                  return (
+                    <li
+                      key={`tx-${t.id}`}
+                      className="flex items-center justify-between gap-4 py-3.5"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-text">
+                          {COPY.txTypes[t.type]}
+                        </p>
+                        <p className="mt-0.5 text-xs tabular text-text-subtle">
+                          {formatDateTimeFR(t.createdAt)}
+                        </p>
+                      </div>
+                      <p
+                        className={`tabular text-base font-semibold ${
+                          isCredit ? "text-success" : "text-text"
+                        }`}
+                      >
+                        {formatHHMMSigned(t.amountMin)}
+                      </p>
+                      <p className="hidden tabular text-xs text-text-subtle sm:block">
+                        → {formatHHMM(t.balanceAfterMin ?? 0)}
+                      </p>
+                    </li>
+                  );
+                }
+
+                // Bank transfer row (PENDING or REJECTED). Amount and
+                // balance-after are rendered muted because the money
+                // hasn't landed in the ledger yet — the pill carries
+                // the state.
+                const bt = row.data;
+                const isPending = bt.status === "PENDING";
                 return (
                   <li
-                    key={t.id}
-                    className="flex items-center justify-between gap-4 py-3.5"
+                    key={`bt-${bt.id}`}
+                    className="flex items-start justify-between gap-4 py-3.5"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-text">
-                        {COPY.txTypes[t.type]}
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-sm font-medium text-text">
+                          {COPY.txTypes.BANK_TRANSFER}
+                        </p>
+                        <Badge
+                          variant={isPending ? "warning" : "danger"}
+                          size="sm"
+                        >
+                          {isPending ? "En attente" : "Refusé"}
+                        </Badge>
+                      </div>
                       <p className="mt-0.5 text-xs tabular text-text-subtle">
-                        {formatDateTimeFR(t.createdAt)}
+                        <span className="font-mono">{bt.reference}</span>
+                        <span className="mx-1.5">·</span>
+                        {formatDateTimeFR(bt.createdAt)}
                       </p>
+                      {bt.status === "REJECTED" && bt.rejectionNote && (
+                        <p className="mt-1 text-xs text-danger">
+                          {bt.rejectionNote}
+                        </p>
+                      )}
                     </div>
-                    <p
-                      className={`tabular text-base font-semibold ${
-                        isCredit ? "text-success" : "text-text"
-                      }`}
-                    >
-                      {formatHHMMSigned(t.amountMin)}
+                    <p className="tabular text-base font-semibold text-text-subtle">
+                      {formatHHMMSigned(bt.hdvMinutes)}
                     </p>
-                    <p className="hidden tabular text-xs text-text-subtle sm:block">
-                      → {formatHHMM(t.balanceAfterMin ?? 0)}
+                    <p
+                      aria-hidden="true"
+                      className="hidden tabular text-xs text-text-subtle sm:block"
+                    >
+                      —
                     </p>
                   </li>
                 );
@@ -293,12 +391,14 @@ function PackageRow({ pkg }: { pkg: DashboardPackage }) {
           {priceFmt}
           <span className="ml-1 text-xs font-normal text-text-subtle">HT</span>
         </p>
-        <form action={createCheckoutSession}>
-          <input type="hidden" name="packageId" value={pkg.id} />
-          <Button type="submit" variant="secondary" size="sm">
-            {COPY.dashboard.buy}
-          </Button>
-        </form>
+        <PayPackageButton
+          pkg={{
+            id: pkg.id,
+            name: pkg.name,
+            hdvMinutes: pkg.hdvMinutes,
+            priceCentsHT: pkg.priceCentsHT,
+          }}
+        />
       </div>
     </li>
   );

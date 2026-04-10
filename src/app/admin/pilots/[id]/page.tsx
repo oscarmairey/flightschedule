@@ -58,6 +58,16 @@ export default async function PilotDetailPage({
 
   if (!pilot) notFound();
 
+  // Latest 10 bank transfers for this pilot — any status, newest first.
+  // VALIDATED ones also appear as Transaction rows below, but listing
+  // them here gives the admin a per-pilot audit view without juggling
+  // pages.
+  const bankTransfers = await prisma.bankTransfer.findMany({
+    where: { userId: pilot.id },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+  });
+
   const banner =
     sp.welcome === "1"
       ? {
@@ -238,6 +248,68 @@ export default async function PilotDetailPage({
             </span>
           </p>
         </Card>
+
+        {/* Bank transfers (last 10) — hidden if the pilot has none */}
+        {bankTransfers.length > 0 && (
+          <section className="mb-12">
+            <div className="mb-4 flex items-baseline justify-between">
+              <h2 className="font-display text-2xl font-semibold tracking-tight text-text-strong">
+                Virements bancaires
+              </h2>
+              <Link
+                href="/admin/virements"
+                className="text-xs font-medium text-brand transition-colors hover:text-brand-hover"
+              >
+                File d&apos;attente →
+              </Link>
+            </div>
+            <ul className="divide-y divide-border-subtle border-y border-border-subtle">
+              {bankTransfers.map((bt) => {
+                const statusVariant =
+                  bt.status === "PENDING"
+                    ? ("warning" as const)
+                    : bt.status === "VALIDATED"
+                      ? ("success" as const)
+                      : ("danger" as const);
+                const statusLabel =
+                  bt.status === "PENDING"
+                    ? "En attente"
+                    : bt.status === "VALIDATED"
+                      ? "Validé"
+                      : "Refusé";
+                return (
+                  <li
+                    key={bt.id}
+                    className="flex flex-wrap items-start justify-between gap-3 py-3.5 text-sm"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-text">
+                        {bt.packageName}
+                        <span className="mx-2 text-text-subtle">·</span>
+                        <span className="tabular text-text-muted">
+                          {formatHHMM(bt.hdvMinutes)}
+                        </span>
+                      </p>
+                      <p className="mt-0.5 text-xs tabular text-text-subtle">
+                        <span className="font-mono">{bt.reference}</span>
+                        <span className="mx-1.5">·</span>
+                        {formatDateTimeFR(bt.createdAt)}
+                      </p>
+                      {bt.status === "REJECTED" && bt.rejectionNote && (
+                        <p className="mt-1 text-xs text-danger">
+                          {bt.rejectionNote}
+                        </p>
+                      )}
+                    </div>
+                    <Badge variant={statusVariant} size="sm">
+                      {statusLabel}
+                    </Badge>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
 
         {/* Recent transactions */}
         <section>

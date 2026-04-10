@@ -9,6 +9,7 @@ import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
 import { formatHHMM } from "@/lib/duration";
+import { formatDateTimeFR } from "@/lib/format";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -21,6 +22,7 @@ import {
   updatePackage,
   archivePackage,
   unarchivePackage,
+  upsertBankAccount,
 } from "./actions";
 
 function formatEUR(cents: number): string {
@@ -40,18 +42,22 @@ export default async function AdminTarifsPage({
     updated?: string;
     archived?: string;
     unarchived?: string;
+    bank?: string;
   }>;
 }) {
   await requireAdmin();
   const sp = await searchParams;
 
-  const [active, archived] = await Promise.all([
+  const [active, archived, bankAccount] = await Promise.all([
     prisma.package.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: "asc" },
     }),
     prisma.package.findMany({
       where: { isActive: false },
+      orderBy: { updatedAt: "desc" },
+    }),
+    prisma.bankAccount.findFirst({
       orderBy: { updatedAt: "desc" },
     }),
   ]);
@@ -65,14 +71,24 @@ export default async function AdminTarifsPage({
           ? { tone: "success" as const, msg: "Forfait archivé." }
           : sp.unarchived === "1"
             ? { tone: "success" as const, msg: "Forfait réactivé." }
-            : sp.error === "stripe"
+            : sp.bank === "1"
               ? {
-                  tone: "error" as const,
-                  msg: `Erreur Stripe : ${sp.msg ?? "détails indisponibles"}`,
+                  tone: "success" as const,
+                  msg: "Coordonnées bancaires enregistrées.",
                 }
-              : sp.error === "invalid"
-                ? { tone: "error" as const, msg: COPY.errors.invalidInput }
-                : null;
+              : sp.error === "invalid_bank"
+                ? {
+                    tone: "error" as const,
+                    msg: "Coordonnées bancaires invalides (IBAN / BIC).",
+                  }
+                : sp.error === "stripe"
+                  ? {
+                      tone: "error" as const,
+                      msg: `Erreur Stripe : ${sp.msg ?? "détails indisponibles"}`,
+                    }
+                  : sp.error === "invalid"
+                    ? { tone: "error" as const, msg: COPY.errors.invalidInput }
+                    : null;
 
   return (
     <AppShell>
@@ -336,6 +352,99 @@ export default async function AdminTarifsPage({
             </ul>
           </section>
         )}
+
+        {/* Bank account (single row) — shown whether configured or not.
+            Placed at the end so the package flow stays uninterrupted. */}
+        <section className="mt-14">
+          <h2 className="font-display mb-2 text-2xl font-semibold tracking-tight text-text-strong">
+            Coordonnées bancaires
+          </h2>
+          <p className="mb-4 max-w-xl text-sm text-text-muted">
+            Affichées aux pilotes dans l&apos;onglet « Virement bancaire » du
+            modal de paiement. Chaque virement reçu doit être validé
+            depuis <span className="font-medium text-text">Virements</span>.
+          </p>
+          <Card>
+            <form action={upsertBankAccount} className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="bank-holderName" required>
+                  Titulaire
+                </Label>
+                <Input
+                  id="bank-holderName"
+                  name="holderName"
+                  type="text"
+                  required
+                  maxLength={200}
+                  defaultValue={bankAccount?.holderName ?? ""}
+                  placeholder="Association CAVOK"
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="bank-iban" required>
+                  IBAN
+                </Label>
+                <Input
+                  id="bank-iban"
+                  name="iban"
+                  type="text"
+                  required
+                  className="tabular"
+                  defaultValue={bankAccount?.iban ?? ""}
+                  placeholder="FR76 1234 5678 9012 3456 7890 185"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="bank-bic" required>
+                  BIC
+                </Label>
+                <Input
+                  id="bank-bic"
+                  name="bic"
+                  type="text"
+                  required
+                  className="tabular"
+                  defaultValue={bankAccount?.bic ?? ""}
+                  placeholder="BNPAFRPP"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="bank-bankName">Banque</Label>
+                <Input
+                  id="bank-bankName"
+                  name="bankName"
+                  type="text"
+                  maxLength={200}
+                  defaultValue={bankAccount?.bankName ?? ""}
+                  placeholder="facultatif"
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="bank-instructions">
+                  Instructions complémentaires
+                </Label>
+                <Input
+                  id="bank-instructions"
+                  name="instructions"
+                  type="text"
+                  maxLength={1000}
+                  defaultValue={bankAccount?.instructions ?? ""}
+                  placeholder="facultatif — ex : « Merci d'inclure votre nom dans le libellé »"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <Button type="submit">
+                  {bankAccount ? "Mettre à jour" : "Enregistrer"}
+                </Button>
+                {bankAccount && (
+                  <p className="mt-2 text-xs tabular text-text-subtle">
+                    Dernière modification : {formatDateTimeFR(bankAccount.updatedAt)}
+                  </p>
+                )}
+              </div>
+            </form>
+          </Card>
+        </section>
       </div>
     </AppShell>
   );

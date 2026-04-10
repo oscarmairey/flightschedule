@@ -38,6 +38,17 @@ enum TransactionType {
   FLIGHT_DEBIT
   CANCELLATION_REFUND
   ADMIN_ADJUSTMENT
+  BANK_TRANSFER
+}
+
+// Lifecycle of a bank-transfer request submitted by a pilot.
+// PENDING  → awaiting admin review (pilot has declared the wire was sent)
+// VALIDATED → admin confirmed incoming wire; a Transaction was created
+// REJECTED → admin refused (wrong amount, never received, etc.)
+enum BankTransferStatus {
+  PENDING
+  VALIDATED
+  REJECTED
 }
 
 // ─── Models ─────────────────────────────────────────────────
@@ -53,6 +64,9 @@ model User {
   hdvBalanceMin  Int      @default(0)
   isActive       Boolean  @default(true)
   mustResetPw    Boolean  @default(true)
+  // Stripe Customer ID — created on first inline card payment so the
+  // pilot can reuse saved cards. Null until the first card purchase.
+  stripeCustomerId String? @unique
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   lastLoginAt    DateTime?
@@ -65,6 +79,9 @@ model User {
   performedTransactions     Transaction[]            @relation("TransactionPerformedBy")
   createdAvailabilityBlocks AvailabilityBlock[]
   createdOpenPeriods        OpenPeriod[]
+  bankTransfers             BankTransfer[]           @relation("UserBankTransfers")
+  reviewedBankTransfers     BankTransfer[]           @relation("BankTransferReviewedBy")
+  updatedBankAccounts       BankAccount[]            @relation("BankAccountUpdatedBy")
 
   @@index([email])
   @@index([isActive])
@@ -187,6 +204,10 @@ model Transaction {
   performedById   String          @db.Uuid
   performedBy     User            @relation("TransactionPerformedBy", fields: [performedById], references: [id])
 
+  // Reverse relation to BankTransfer (set when an admin validates a
+  // pending wire and the resulting Transaction is materialised).
+  bankTransfer    BankTransfer?
+
   createdAt       DateTime        @default(now())
 
   @@index([userId, createdAt])
@@ -273,4 +294,64 @@ model Package {
   updatedAt       DateTime @updatedAt
 
   @@index([isActive, sortOrder])
+}
+
+// V2.1 — Association bank account (single-row table managed by admins).
+// The pilot bank-transfer modal on /dashboard displays the latest row
+// verbatim, so updates take effect immediately without any caching.
+model BankAccount {
+  id           String   @id @default(uuid()) @db.Uuid
+  iban         String
+  bic          String
+  holderName   String
+  bankName     String?
+  instructions String?
+
+  updatedById  String   @db.Uuid
+  updatedBy    User     @relation("BankAccountUpdatedBy", fields: [updatedById], references: [id])
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// V2.1 — Pilot-initiated bank-transfer request awaiting admin review.
+// This table is NOT a ledger. It holds PENDING intentions plus historical
+// REJECTED rows. On VALIDATED, `applyHdvMutation` creates a real
+// `Transaction` row and we link it via `transactionId` — the Transaction
+// ledger remains the single source of truth for HDV balances (rule #2).
+model BankTransfer {
+  id            String             @id @default(uuid()) @db.Uuid
+  userId        String             @db.Uuid
+  user          User               @relation("UserBankTransfers", fields: [userId], references: [id])
+
+  // Snapshot of the package at creation time — the admin still grants
+  // exactly these HDV minutes even if the Package row is edited later.
+  packageId     String             @db.Uuid
+  packageName   String
+  hdvMinutes    Int
+  priceCentsTTC Int
+
+  // "FS-XXXXXX" human-readable wire memo. Unique across the table so the
+  // admin can match incoming wires unambiguously.
+  reference     String             @unique
+
+  status        BankTransferStatus @default(PENDING)
+
+  // Populated on VALIDATED — links to the Transaction inserted by
+  // applyHdvMutation. Unique so we can never double-credit.
+  transactionId String?            @unique @db.Uuid
+  transaction   Transaction?       @relation(fields: [transactionId], references: [id])
+
+  // Who approved / refused, and when / why.
+  reviewedById  String?            @db.Uuid
+  reviewedBy    User?              @relation("BankTransferReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt    DateTime?
+  rejectionNote String?
+
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([reference])
 }

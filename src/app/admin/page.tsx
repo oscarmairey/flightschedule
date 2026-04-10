@@ -5,7 +5,7 @@
 // admin validation.)
 
 import Link from "next/link";
-import { Shield, ArrowRight, AlertTriangle } from "lucide-react";
+import { Shield, ArrowRight, AlertTriangle, Banknote } from "lucide-react";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
@@ -23,7 +23,7 @@ import { AppShell } from "@/components/AppShell";
 export default async function AdminOverviewPage() {
   await requireAdmin();
 
-  const [lowBalance, recentActivity, recentPayments] =
+  const [lowBalance, recentActivity, recentPayments, pendingTransferCount] =
     await Promise.all([
       prisma.user.findMany({
         where: {
@@ -40,11 +40,12 @@ export default async function AdminOverviewPage() {
         include: { user: { select: { name: true } } },
       }),
       prisma.transaction.findMany({
-        where: { type: "PACKAGE_PURCHASE" },
+        where: { type: { in: ["PACKAGE_PURCHASE", "BANK_TRANSFER"] } },
         orderBy: { createdAt: "desc" },
         take: 10,
         include: { user: { select: { name: true } } },
       }),
+      prisma.bankTransfer.count({ where: { status: "PENDING" } }),
     ]);
 
   return (
@@ -60,10 +61,10 @@ export default async function AdminOverviewPage() {
           </h1>
         </header>
 
-        {/* Top metric — pilots in low-balance state */}
+        {/* Top metrics — pilots in low-balance + pending bank transfers */}
         <section
-          aria-label="Indicateur clé"
-          className="border-y border-border-subtle py-7"
+          aria-label="Indicateurs clés"
+          className="grid gap-6 border-y border-border-subtle py-7 sm:grid-cols-2"
         >
           <Link href="/admin/pilots" className="group block">
             <p className="text-xs font-medium uppercase tracking-[0.12em] text-text-subtle">
@@ -79,6 +80,24 @@ export default async function AdminOverviewPage() {
               </span>
               <span className="text-sm font-medium text-brand opacity-0 transition-opacity group-hover:opacity-100">
                 Voir la liste →
+              </span>
+            </div>
+          </Link>
+          <Link href="/admin/virements" className="group block">
+            <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-[0.12em] text-text-subtle">
+              <Banknote className="h-3 w-3" aria-hidden="true" />
+              Virements en attente
+            </p>
+            <div className="mt-2 flex items-baseline gap-3">
+              <span
+                className={`font-display tabular text-5xl font-semibold tracking-tight ${
+                  pendingTransferCount > 0 ? "text-warning" : "text-text-strong"
+                }`}
+              >
+                {pendingTransferCount}
+              </span>
+              <span className="text-sm font-medium text-brand opacity-0 transition-opacity group-hover:opacity-100">
+                Valider →
               </span>
             </div>
           </Link>
@@ -198,6 +217,8 @@ export default async function AdminOverviewPage() {
                         {t.user.name}
                       </p>
                       <p className="mt-0.5 text-xs tabular text-text-subtle">
+                        {t.type === "BANK_TRANSFER" ? "Virement" : "Carte"}
+                        <span className="mx-1.5">·</span>
                         {formatDateTimeFR(t.createdAt)}
                       </p>
                     </div>
@@ -221,6 +242,12 @@ export default async function AdminOverviewPage() {
           <Link href="/admin/disponibilites">
             <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition-colors hover:text-brand-hover">
               Disponibilités <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </span>
+          </Link>
+          <span className="text-text-subtle">·</span>
+          <Link href="/admin/virements">
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition-colors hover:text-brand-hover">
+              Virements <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </span>
           </Link>
           <span className="text-text-subtle">·</span>

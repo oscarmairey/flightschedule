@@ -1,4 +1,3 @@
-// @ts-nocheck — WIP: depends on @stripe/stripe-js (not yet installed)
 // FlightSchedule — Stripe.js (browser bundle) singleton loader.
 //
 // Imported only by the payment modal client component

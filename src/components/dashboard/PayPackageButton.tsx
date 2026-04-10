@@ -1,4 +1,3 @@
-// @ts-nocheck — WIP: depends on unfinished payment intent migration
 // FlightSchedule — Pay-package modal trigger.
 //
 // V2.1 (delightful-chasing-wren plan §6) — replaces the
@@ -44,7 +43,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { COPY } from "@/lib/copy";
 import { formatHHMM } from "@/lib/duration";
-import { formatEuros } from "@/lib/pricing";
+import { formatEuros, computePriceCentsTTC } from "@/lib/pricing";
 import { getStripeClient } from "@/lib/stripe-client";
 import {
   prepareCardCheckout,
@@ -105,7 +104,7 @@ export function PayPackageButton({ pkg }: { pkg: PayPackagePkg }) {
               <p className="mt-0.5 text-sm tabular text-text-muted">
                 {formatHHMM(pkg.hdvMinutes)}
                 <span className="mx-1.5 text-text-subtle">·</span>
-                {formatEuros(Math.round(pkg.priceCentsHT * 1.2))}
+                {formatEuros(computePriceCentsTTC(pkg.priceCentsHT))}
                 <span className="ml-1 text-xs text-text-subtle">TTC</span>
               </p>
             </div>
@@ -470,9 +469,21 @@ function CardTabForm({
           <PaymentElement
             options={{
               layout: "tabs",
-              // Don't ask Stripe to collect billing details — we
-              // already have email + name on the Customer.
-              fields: { billingDetails: "never" },
+              // Don't ask Stripe to collect name + email — we already
+              // have them on the User and pass them via
+              // payment_method_data.billing_details at confirm time.
+              //
+              // IMPORTANT: granular opt-out, not the string form
+              // `"never"`. The string form means "I will supply ALL
+              // billing_details" (name + email + phone + address) at
+              // confirm time — supplying a subset throws
+              // IntegrationError "did not pass confirmParams.
+              // payment_method_data.billing_details.phone". We don't
+              // have phone or address on the User, so we only opt out
+              // of the two fields we actually own.
+              fields: {
+                billingDetails: { name: "never", email: "never" },
+              },
             }}
           />
 

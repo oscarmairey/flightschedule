@@ -247,6 +247,93 @@ export async function archivePackage(formData: FormData) {
   redirect("/admin/tarifs?archived=1");
 }
 
+// ─── Bank account (single-row) — configuration for wire transfers ───
+
+// Minimal IBAN sanity check: 2-letter country code, 2 digits, up to 30
+// alphanumeric characters. We don't do full MOD-97 checksum because the
+// admin is entering their OWN account details; a typo is caught at the
+// first pilot wire attempt, not by the form.
+const IbanSchema = z
+  .string()
+  .trim()
+  .transform((s) => s.replace(/\s+/g, "").toUpperCase())
+  .refine((s) => /^[A-Z]{2}\d{2}[A-Z0-9]{4,30}$/.test(s), {
+    message: "IBAN invalide",
+  });
+
+const BankAccountInputSchema = z.object({
+  iban: IbanSchema,
+  bic: z
+    .string()
+    .trim()
+    .transform((s) => s.replace(/\s+/g, "").toUpperCase())
+    .refine((s) => /^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(s), {
+      message: "BIC invalide",
+    }),
+  holderName: z.string().trim().min(1).max(200),
+  bankName: z
+    .string()
+    .trim()
+    .max(200)
+    .optional()
+    .transform((v) => (v === "" ? undefined : v)),
+  instructions: z
+    .string()
+    .trim()
+    .max(1000)
+    .optional()
+    .transform((v) => (v === "" ? undefined : v)),
+});
+
+export async function upsertBankAccount(formData: FormData) {
+  const session = await requireAdmin();
+
+  const parsed = BankAccountInputSchema.safeParse({
+    iban: formData.get("iban") ?? "",
+    bic: formData.get("bic") ?? "",
+    holderName: formData.get("holderName") ?? "",
+    bankName: formData.get("bankName") ?? undefined,
+    instructions: formData.get("instructions") ?? undefined,
+  });
+  if (!parsed.success) {
+    redirect("/admin/tarifs?error=invalid_bank");
+  }
+
+  const existing = await prisma.bankAccount.findFirst({
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+
+  if (existing) {
+    await prisma.bankAccount.update({
+      where: { id: existing.id },
+      data: {
+        iban: parsed.data.iban,
+        bic: parsed.data.bic,
+        holderName: parsed.data.holderName,
+        bankName: parsed.data.bankName ?? null,
+        instructions: parsed.data.instructions ?? null,
+        updatedById: session.user.id,
+      },
+    });
+  } else {
+    await prisma.bankAccount.create({
+      data: {
+        iban: parsed.data.iban,
+        bic: parsed.data.bic,
+        holderName: parsed.data.holderName,
+        bankName: parsed.data.bankName ?? null,
+        instructions: parsed.data.instructions ?? null,
+        updatedById: session.user.id,
+      },
+    });
+  }
+
+  revalidatePath("/admin/tarifs");
+  revalidatePath("/dashboard");
+  redirect("/admin/tarifs?bank=1");
+}
+
 export async function unarchivePackage(formData: FormData) {
   await requireAdmin();
   const idResult = UuidSchema.safeParse(formData.get("id"));

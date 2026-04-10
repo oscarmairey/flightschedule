@@ -40,6 +40,7 @@ const ADMIN_ITEMS: { href: string; label: string }[] = [
   { href: "/admin", label: COPY.nav.admin },
   { href: "/admin/pilots", label: COPY.nav.adminPilots },
   { href: "/admin/disponibilites", label: COPY.nav.adminDisponibilites },
+  { href: "/admin/virements", label: COPY.nav.adminVirements },
   { href: "/admin/tarifs", label: COPY.nav.adminTarifs },
 ];
 

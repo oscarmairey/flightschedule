@@ -41,6 +41,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # NEXT_PUBLIC_* vars are inlined into the client JS bundle by
+      # `next build` — they MUST be present at build time, not just
+      # runtime. docker-compose interpolates these from `.env` in the
+      # project directory automatically.
+      args:
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
     image: cavok-web:latest
     container_name: cavok-web
     restart: unless-stopped
