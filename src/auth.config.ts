@@ -21,6 +21,10 @@ declare module "next-auth" {
       id: string;
       role: Role;
       mustResetPw: boolean;
+      // ISO timestamp string (or null) — null means the pilot still needs
+      // to see /welcome. Stored as string because Date doesn't round-trip
+      // cleanly through the JWT's JSON serializer.
+      onboardingCompletedAt: string | null;
     } & {
       name?: string | null;
       email?: string | null;
@@ -31,6 +35,7 @@ declare module "next-auth" {
   interface User {
     role: Role;
     mustResetPw: boolean;
+    onboardingCompletedAt: string | null;
   }
 }
 
@@ -39,6 +44,7 @@ declare module "next-auth/jwt" {
     id: string;
     role: Role;
     mustResetPw: boolean;
+    onboardingCompletedAt: string | null;
   }
 }
 
@@ -61,6 +67,9 @@ export const authConfig = {
         token.id = user.id as string;
         token.role = (user as { role: Role }).role;
         token.mustResetPw = (user as { mustResetPw: boolean }).mustResetPw;
+        token.onboardingCompletedAt =
+          (user as { onboardingCompletedAt: string | null })
+            .onboardingCompletedAt ?? null;
       }
       // /setup-password calls `unstable_update({ user: { mustResetPw: false } })`
       // after a successful password write. Auth.js v5's update API only allows
@@ -77,6 +86,21 @@ export const authConfig = {
           session as { user: { mustResetPw: boolean } }
         ).user.mustResetPw;
       }
+      // Same pattern for the welcome flow: /welcome's actions call
+      // `unstable_update({ user: { onboardingCompletedAt: <iso> | null } })`
+      // and the proxy reads `token.onboardingCompletedAt` to decide. The key
+      // MUST be nested under `user` — top-level silently no-ops.
+      if (
+        trigger === "update" &&
+        session &&
+        "onboardingCompletedAt" in
+          ((session as { user?: object }).user ?? {})
+      ) {
+        const v = (
+          session as { user: { onboardingCompletedAt: unknown } }
+        ).user.onboardingCompletedAt;
+        token.onboardingCompletedAt = typeof v === "string" ? v : null;
+      }
       return token;
     },
     async session({ session, token }) {
@@ -84,6 +108,7 @@ export const authConfig = {
         session.user.id = token.id;
         session.user.role = token.role;
         session.user.mustResetPw = token.mustResetPw;
+        session.user.onboardingCompletedAt = token.onboardingCompletedAt;
       }
       return session;
     },

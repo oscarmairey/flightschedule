@@ -48,9 +48,22 @@ export type AlertProps = {
   tone: Tone;
   children: ReactNode;
   className?: string;
+  /** Optional bold title rendered above the body. */
+  title?: ReactNode;
+  /**
+   * Optional trailing slot — typically a dismiss button. Rendered at the
+   * far end of the alert row, vertically centered with the icon.
+   */
+  action?: ReactNode;
 };
 
-export function Alert({ tone, children, className = "" }: AlertProps) {
+export function Alert({
+  tone,
+  children,
+  className = "",
+  title,
+  action,
+}: AlertProps) {
   const { className: toneClass, Icon, defaultLabel } = TONE_CONFIG[tone];
   return (
     <div
@@ -59,11 +72,22 @@ export function Alert({ tone, children, className = "" }: AlertProps) {
     >
       <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <div className="flex-1">
-        <p>
-          <span className="sr-only">{defaultLabel}&nbsp;: </span>
-          {children}
-        </p>
+        {title ? (
+          <>
+            <p className="font-semibold">
+              <span className="sr-only">{defaultLabel}&nbsp;: </span>
+              {title}
+            </p>
+            <div className="mt-0.5">{children}</div>
+          </>
+        ) : (
+          <p>
+            <span className="sr-only">{defaultLabel}&nbsp;: </span>
+            {children}
+          </p>
+        )}
       </div>
+      {action && <div className="shrink-0 self-center">{action}</div>}
     </div>
   );
 }

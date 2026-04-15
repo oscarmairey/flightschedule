@@ -20,7 +20,11 @@ import { authConfig } from "@/auth.config";
 
 const { auth } = NextAuth(authConfig);
 
-const PUBLIC_PATHS = new Set<string>(["/login", "/setup-password"]);
+const PUBLIC_PATHS = new Set<string>([
+  "/login",
+  "/setup-password",
+  "/welcome",
+]);
 
 const PILOT_PROTECTED_PREFIXES = [
   "/dashboard",
@@ -77,6 +81,21 @@ export default auth((req) => {
     !path.startsWith("/api/auth")
   ) {
     return NextResponse.redirect(new URL("/setup-password", nextUrl));
+  }
+
+  // Pilot who hasn't completed (or skipped) the welcome flow → /welcome.
+  // Admins skip onboarding by default — they only see /welcome when they
+  // explicitly use the "Rejouer l'onboarding" admin button, which lands
+  // them there via a server redirect (bypassing this branch).
+  if (
+    session?.user &&
+    session.user.role === "PILOT" &&
+    !session.user.onboardingCompletedAt &&
+    path !== "/welcome" &&
+    path !== "/setup-password" &&
+    !path.startsWith("/api/auth")
+  ) {
+    return NextResponse.redirect(new URL("/welcome", nextUrl));
   }
 
   return passthrough(req);

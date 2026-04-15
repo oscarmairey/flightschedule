@@ -36,6 +36,7 @@ import { WeekCalendar } from "@/components/calendar/WeekCalendar";
 import { CancelReservationButton } from "@/components/calendar/CancelReservationButton";
 import { TimeBlockPicker, type TimeBlock } from "@/components/calendar/TimeBlockPicker";
 import { resolveBanner } from "@/lib/banners";
+import { OnboardingHint } from "@/components/onboarding/OnboardingHint";
 import { createReservation } from "./actions";
 
 const TZ = "Europe/Paris";
@@ -156,6 +157,15 @@ export default async function CalendarPage({
             <Alert tone={banner.tone}>{banner.msg}</Alert>
           </div>
         )}
+
+        <div className="mb-8">
+          <OnboardingHint
+            hintKey="fs:hint:calendar-booking"
+            title={COPY.onboarding.hintCalendarTitle}
+          >
+            {COPY.onboarding.hintCalendarBody}
+          </OnboardingHint>
+        </div>
 
         {/* 1. Upcoming reservations — hidden when empty */}
         {upcoming.length > 0 && (

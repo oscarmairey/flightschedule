@@ -89,6 +89,10 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
           name: user.name,
           role: user.role,
           mustResetPw: user.mustResetPw,
+          // Serialize Date → ISO string for clean JWT round-tripping.
+          // Null = pilot still owes the /welcome flow (proxy redirects).
+          onboardingCompletedAt:
+            user.onboardingCompletedAt?.toISOString() ?? null,
         };
       },
     }),

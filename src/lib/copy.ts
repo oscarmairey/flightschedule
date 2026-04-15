@@ -159,6 +159,59 @@ export const COPY = {
     insufficientBalance: "Solde HDV insuffisant pour cette opération.",
     invalidInput: "Données invalides.",
   },
+
+  onboarding: {
+    // Welcome screen shell
+    welcomeEyebrow: "Bienvenue à bord",
+    welcomeTitle: "En 1 minute, prêt à décoller",
+    welcomeIntro: "3 cartes · environ 1 minute",
+    stepLabel: "Étape {n} / {total}",
+    skip: "Passer",
+    next: "Suivant",
+    understood: "J'ai compris",
+    finalCta: "Réserver l'avion",
+
+    // Card 1 — HDV wallet
+    card1Title: "Votre solde HDV",
+    card1Body:
+      "Vos heures de vol sont stockées en minutes dans un solde personnel. Vous le rechargez avec un forfait, et chaque vol enregistré le décompte automatiquement.",
+    card1TiersLead: "Repères de couleur sur votre tableau de bord :",
+    card1TierGreen: "Vert · plus de 5 h",
+    card1TierAmber: "Ambre · entre 2 h et 5 h",
+    card1TierRed: "Rouge · moins de 2 h, pensez à recharger",
+
+    // Card 2 — V2 inversion
+    card2Title: "Réserver ≠ voler",
+    card2Body:
+      "Une réservation bloque le créneau, mais ne décompte aucune heure. Le solde HDV est ajusté uniquement à la saisie du vol, à partir des heures bloc OFF et bloc ON. Vous pouvez aussi enregistrer un vol sans avoir réservé : la réservation sera créée pour vous.",
+
+    // Card 3 — first booking
+    card3Title: "Votre premier créneau",
+    card3Body:
+      "L'avion est disponible 24 h/24 dans les plages d'ouverture définies par l'administrateur. Quelques règles à retenir :",
+    card3Rule3h: "Bloc minimum de 3 heures par réservation.",
+    card3Rule24h:
+      "Annulation libre jusqu'à 24 h avant le créneau. Au-delà, contactez l'administrateur.",
+
+    // Contextual hints
+    hintDashboardTitle: "Votre solde, en un coup d'œil",
+    hintDashboardBody:
+      "Vert au-dessus de 5 h, ambre entre 2 h et 5 h, rouge en dessous. Rechargez via un forfait HDV plus bas sur cette page dès que la jauge passe à l'ambre.",
+    hintCalendarTitle: "Comment réserver",
+    hintCalendarBody:
+      "Choisissez la date et l'heure (bloc minimum 3 h) puis confirmez. Vous pourrez annuler vous-même jusqu'à 24 h avant le créneau ; passé ce délai, contactez l'administrateur.",
+    hintFlightsEngineTitle: "Heures bloc OFF / bloc ON",
+    hintFlightsEngineBody:
+      "Ce sont elles qui calculent la durée du vol et débitent votre solde HDV. Pas besoin d'avoir réservé au préalable : la réservation sera rattachée ou créée automatiquement.",
+    hintFlightsImmutableTitle: "Vos vols sont définitifs",
+    hintFlightsImmutableBody:
+      "Une fois enregistré, un vol ne peut plus être modifié ni supprimé depuis votre compte. En cas d'erreur, contactez l'administrateur — il pourra corriger les heures et le solde sera ajusté.",
+    hintDismiss: "Compris",
+
+    // Admin replay
+    adminReplay: "Rejouer l'onboarding",
+    adminReplayHint: "Relance le tutoriel d'accueil pour votre propre compte.",
+  },
 } as const;
 
 export type Copy = typeof COPY;

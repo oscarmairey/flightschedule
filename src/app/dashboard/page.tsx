@@ -18,6 +18,7 @@ import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
 import { HeroBalance } from "@/components/HeroBalance";
 import { PayPackageButton } from "@/components/dashboard/PayPackageButton";
+import { OnboardingHint } from "@/components/onboarding/OnboardingHint";
 
 export default async function DashboardPage({
   searchParams,
@@ -149,6 +150,15 @@ export default async function DashboardPage({
             {session.user.name}
           </h1>
         </header>
+
+        <div className="mb-6">
+          <OnboardingHint
+            hintKey="fs:hint:dashboard-balance"
+            title={COPY.onboarding.hintDashboardTitle}
+          >
+            {COPY.onboarding.hintDashboardBody}
+          </OnboardingHint>
+        </div>
 
         {errorBanner && (
           <div className="mb-6">

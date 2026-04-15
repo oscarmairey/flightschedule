@@ -5,6 +5,7 @@
 
 import { PencilLine } from "lucide-react";
 import { requireSession } from "@/lib/session";
+import { prisma } from "@/lib/db";
 import { parisLocalDateString } from "@/lib/format";
 import { COPY } from "@/lib/copy";
 import { COMMON_AIRPORTS } from "@/lib/airports";
@@ -18,6 +19,7 @@ import { AppShell } from "@/components/AppShell";
 import { PhotoUpload } from "@/components/flights/PhotoUpload";
 import { FlightTimeFields } from "@/components/flights/FlightTimeFields";
 import { FlightHistory } from "@/components/flights/FlightHistory";
+import { OnboardingHint } from "@/components/onboarding/OnboardingHint";
 import { submitFlight } from "./new/actions";
 
 export default async function FlightsPage({
@@ -29,6 +31,13 @@ export default async function FlightsPage({
   const sp = await searchParams;
 
   const defaultFlightDate = parisLocalDateString(new Date());
+
+  // The "vols immuables" hint only makes sense once the pilot has at
+  // least one flight to worry about. Cheap count, kept off the
+  // FlightHistory child to keep its API single-purpose.
+  const flightCount = await prisma.flight.count({
+    where: { userId: session.user.id },
+  });
 
   const errorBanner =
     sp.error === "too_many_photos"
@@ -78,6 +87,15 @@ export default async function FlightsPage({
             </Alert>
           </div>
         )}
+
+        <div className="mb-6">
+          <OnboardingHint
+            hintKey="fs:hint:flights-engine-times"
+            title={COPY.onboarding.hintFlightsEngineTitle}
+          >
+            {COPY.onboarding.hintFlightsEngineBody}
+          </OnboardingHint>
+        </div>
 
         <form action={submitFlight} className="space-y-6">
           <Card>
@@ -214,6 +232,17 @@ export default async function FlightsPage({
             </SubmitButton>
           </div>
         </form>
+
+        {flightCount > 0 && (
+          <div className="mt-10">
+            <OnboardingHint
+              hintKey="fs:hint:flights-immutable"
+              title={COPY.onboarding.hintFlightsImmutableTitle}
+            >
+              {COPY.onboarding.hintFlightsImmutableBody}
+            </OnboardingHint>
+          </div>
+        )}
 
         <FlightHistory userId={session.user.id} />
       </div>

@@ -23,6 +23,8 @@ export type AppSession = {
     email: string;
     role: Role;
     mustResetPw: boolean;
+    /** ISO string, or null if the pilot still needs /welcome. */
+    onboardingCompletedAt: string | null;
   };
 };
 
@@ -49,6 +51,7 @@ export async function requireSession(): Promise<AppSession> {
       email: session.user.email ?? "",
       role: session.user.role,
       mustResetPw: session.user.mustResetPw,
+      onboardingCompletedAt: session.user.onboardingCompletedAt,
     },
   };
 }
@@ -80,6 +83,7 @@ export async function getOptionalSession(): Promise<AppSession | null> {
       email: session.user.email ?? "",
       role: session.user.role,
       mustResetPw: session.user.mustResetPw,
+      onboardingCompletedAt: session.user.onboardingCompletedAt,
     },
   };
 }

@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
+import { ReplayOnboardingButton } from "@/components/onboarding/ReplayOnboardingButton";
 
 function formatEUR(cents: number | null): string {
   if (cents === null || cents === 0) return "—";
@@ -151,12 +152,15 @@ export default async function AdminPilotsPage({
               {pilots.length} compte{pilots.length !== 1 ? "s" : ""}
             </h1>
           </div>
-          <Link href="/admin/pilots/new">
-            <Button>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Nouveau pilote
-            </Button>
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <ReplayOnboardingButton />
+            <Link href="/admin/pilots/new">
+              <Button>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Nouveau pilote
+              </Button>
+            </Link>
+          </div>
         </header>
 
         {errorBanner && (
