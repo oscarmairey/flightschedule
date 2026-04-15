@@ -16,11 +16,21 @@ import { HeroBalance } from "@/components/HeroBalance";
 
 export default async function CheckoutSuccessPage() {
   const session = await requireSession();
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { hdvBalanceMin: true },
+  // V2.4: show the positive (active) wallet if any, otherwise fall back
+  // to net. The Stripe webhook is async — if it hasn't fired yet the
+  // pilot may still see their pre-purchase balance until refresh.
+  const balances = await prisma.userFlightHourBalance.findMany({
+    where: { userId: session.user.id },
+    include: {
+      flightHourType: { select: { name: true } },
+    },
   });
-  const balance = user?.hdvBalanceMin ?? 0;
+  const positive = balances.find((b) => b.balanceMin > 0);
+  const net = balances.reduce((acc, b) => acc + b.balanceMin, 0);
+  const balance = positive?.balanceMin ?? net;
+  const balanceLabel = positive
+    ? `${COPY.dashboard.balanceLabel} · ${positive.flightHourType.name}`
+    : COPY.dashboard.balanceLabel;
 
   return (
     <AppShell>
@@ -36,11 +46,7 @@ export default async function CheckoutSuccessPage() {
         </p>
 
         <Card tone="brand" className="mt-8 p-7">
-          <HeroBalance
-            balanceMin={balance}
-            label={COPY.dashboard.balanceLabel}
-            size="lg"
-          />
+          <HeroBalance balanceMin={balance} label={balanceLabel} size="lg" />
         </Card>
 
         <p className="mt-6 text-xs leading-relaxed text-text-subtle">

@@ -11,6 +11,8 @@ export type CheckoutSessionFixtureInput = {
   sessionId: string;
   userId: string;
   hdvMinutes: number;
+  /** V2.4 — FlightHourType the credit lands on. */
+  flightHourTypeId: string;
   amountTotalCents?: number;
   paymentStatus?: "paid" | "unpaid";
 };
@@ -32,6 +34,7 @@ export function buildCheckoutSessionCompletedEvent(
         metadata: {
           flyUserId: input.userId,
           flyHdvMin: String(input.hdvMinutes),
+          flyFlightHourTypeId: input.flightHourTypeId,
         },
       },
     },
@@ -43,6 +46,7 @@ export type PaymentIntentFixtureInput = {
   paymentIntentId: string;
   userId: string;
   hdvMinutes: number;
+  flightHourTypeId: string;
   amountCents?: number;
 };
 
@@ -62,6 +66,7 @@ export function buildPaymentIntentSucceededEvent(
         metadata: {
           flyUserId: input.userId,
           flyHdvMin: String(input.hdvMinutes),
+          flyFlightHourTypeId: input.flightHourTypeId,
         },
       },
     },

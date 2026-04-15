@@ -26,7 +26,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { applyHdvMutation } from "@/lib/hdv";
+import { applyHdvMutation, MixedTypeBalanceError } from "@/lib/hdv";
 import { UuidSchema } from "@/lib/validation";
 
 const RejectSchema = z.object({
@@ -48,49 +48,60 @@ export async function validateBankTransfer(formData: FormData) {
   }
   const bankTransferId = idResult.data;
 
-  await prisma.$transaction(
-    async (tx) => {
-      const bt = await tx.bankTransfer.findUnique({
-        where: { id: bankTransferId },
-        select: {
-          id: true,
-          userId: true,
-          hdvMinutes: true,
-          priceCentsTTC: true,
-          reference: true,
-          status: true,
-        },
-      });
-      if (!bt) {
-        throw new Error("BankTransfer not found");
-      }
-      if (bt.status !== "PENDING") {
-        // Already processed — nothing to do. This is the idempotent skip
-        // path that covers a double-click from the admin UI.
-        return;
-      }
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        const bt = await tx.bankTransfer.findUnique({
+          where: { id: bankTransferId },
+          select: {
+            id: true,
+            userId: true,
+            hdvMinutes: true,
+            priceCentsTTC: true,
+            reference: true,
+            status: true,
+            flightHourTypeId: true,
+          },
+        });
+        if (!bt) {
+          throw new Error("BankTransfer not found");
+        }
+        if (bt.status !== "PENDING") {
+          // Already processed — nothing to do. This is the idempotent skip
+          // path that covers a double-click from the admin UI.
+          return;
+        }
 
-      const { transactionId } = await applyHdvMutation(tx, {
-        userId: bt.userId,
-        type: "BANK_TRANSFER",
-        amountMin: bt.hdvMinutes,
-        reference: bt.reference,
-        priceCents: bt.priceCentsTTC,
-        performedById: session.user.id,
-      });
+        const { transactionId } = await applyHdvMutation(tx, {
+          userId: bt.userId,
+          flightHourTypeId: bt.flightHourTypeId,
+          type: "BANK_TRANSFER",
+          amountMin: bt.hdvMinutes,
+          reference: bt.reference,
+          priceCents: bt.priceCentsTTC,
+          performedById: session.user.id,
+        });
 
-      await tx.bankTransfer.update({
-        where: { id: bt.id },
-        data: {
-          status: "VALIDATED",
-          reviewedById: session.user.id,
-          reviewedAt: new Date(),
-          transactionId,
-        },
-      });
-    },
-    { isolationLevel: "Serializable", maxWait: 5_000, timeout: 10_000 },
-  );
+        await tx.bankTransfer.update({
+          where: { id: bt.id },
+          data: {
+            status: "VALIDATED",
+            reviewedById: session.user.id,
+            reviewedAt: new Date(),
+            transactionId,
+          },
+        });
+      },
+      { isolationLevel: "Serializable", maxWait: 5_000, timeout: 10_000 },
+    );
+  } catch (err) {
+    if (err instanceof MixedTypeBalanceError) {
+      // The pilot acquired hours in a different type between their wire
+      // and the admin validation. Admin must resolve via /admin/pilots.
+      redirect(`/admin/virements?error=mixed_type&id=${bankTransferId}`);
+    }
+    throw err;
+  }
 
   revalidatePath("/admin/virements");
   revalidatePath("/admin");

@@ -49,6 +49,7 @@ export default async function AdminPilotsPage({
     upcomingResByUser,
     flightsThisYearByUser,
     spendByUser,
+    userBalances,
   ] = await Promise.all([
     prisma.user.findMany({
       orderBy: [{ isActive: "desc" }, { name: "asc" }],
@@ -80,6 +81,14 @@ export default async function AdminPilotsPage({
       where: { type: "PACKAGE_PURCHASE", priceCents: { not: null } },
       _sum: { priceCents: true },
     }),
+    // V2.4 — per-type wallets for each pilot. Used to derive the "Solde
+    // HDV" column (sum across types) and the active type label.
+    prisma.userFlightHourBalance.findMany({
+      where: { balanceMin: { not: 0 } },
+      include: {
+        flightHourType: { select: { name: true } },
+      },
+    }),
   ]);
 
   const totalCreditMap = new Map<string, number>();
@@ -97,6 +106,31 @@ export default async function AdminPilotsPage({
   const spendMap = new Map<string, number>();
   for (const row of spendByUser) {
     spendMap.set(row.userId, row._sum.priceCents ?? 0);
+  }
+
+  // Per-pilot balance aggregate: sum across types + name of the active
+  // (positive) wallet, or "Mixte" if somehow two+ non-zero types exist
+  // (shouldn't under the invariant but defensive).
+  type BalanceSummary = {
+    netMin: number;
+    activeTypeName: string | null;
+    /** true when the pilot has no non-zero wallet at all. */
+    empty: boolean;
+  };
+  const balanceMap = new Map<string, BalanceSummary>();
+  for (const row of userBalances) {
+    const prev = balanceMap.get(row.userId) ?? {
+      netMin: 0,
+      activeTypeName: null,
+      empty: false,
+    };
+    prev.netMin += row.balanceMin;
+    if (row.balanceMin > 0) {
+      prev.activeTypeName = prev.activeTypeName
+        ? `${prev.activeTypeName}, ${row.flightHourType.name}`
+        : row.flightHourType.name;
+    }
+    balanceMap.set(row.userId, prev);
   }
 
   const errorBanner =
@@ -175,9 +209,22 @@ export default async function AdminPilotsPage({
                     <p className="mt-0.5 text-xs text-text-muted">{p.email}</p>
                   </td>
                   <td className="py-4 pr-4 text-right">
-                    <Badge tier={balanceTier(p.hdvBalanceMin)}>
-                      {formatHHMM(p.hdvBalanceMin)}
-                    </Badge>
+                    {(() => {
+                      const bal = balanceMap.get(p.id);
+                      const net = bal?.netMin ?? 0;
+                      return (
+                        <div className="flex flex-col items-end gap-0.5">
+                          <Badge tier={balanceTier(net)}>
+                            {formatHHMM(net)}
+                          </Badge>
+                          {bal?.activeTypeName && (
+                            <span className="text-[11px] text-text-subtle">
+                              {bal.activeTypeName}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="py-4 pr-4 text-right tabular text-text">
                     {formatHHMM(totalCreditMap.get(p.id) ?? 0)}
@@ -235,9 +282,20 @@ export default async function AdminPilotsPage({
                   </div>
                   <p className="mt-0.5 text-xs text-text-muted">{p.email}</p>
                 </div>
-                <Badge tier={balanceTier(p.hdvBalanceMin)}>
-                  {formatHHMM(p.hdvBalanceMin)}
-                </Badge>
+                {(() => {
+                  const bal = balanceMap.get(p.id);
+                  const net = bal?.netMin ?? 0;
+                  return (
+                    <div className="flex flex-col items-end gap-0.5">
+                      <Badge tier={balanceTier(net)}>{formatHHMM(net)}</Badge>
+                      {bal?.activeTypeName && (
+                        <span className="text-[11px] text-text-subtle">
+                          {bal.activeTypeName}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                 <div>

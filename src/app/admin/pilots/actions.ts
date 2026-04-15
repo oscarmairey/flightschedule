@@ -13,7 +13,7 @@ import { hash } from "bcryptjs";
 import { randomBytes } from "node:crypto";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { applyHdvMutation } from "@/lib/hdv";
+import { applyHdvMutation, MixedTypeBalanceError } from "@/lib/hdv";
 import { sendTempPasswordEmail, sendPasswordResetEmail } from "@/lib/email";
 import { EmailSchema, NonEmptyTextSchema, UuidSchema } from "@/lib/validation";
 import { parseHHMM } from "@/lib/duration";
@@ -62,7 +62,6 @@ export async function createPilot(formData: FormData) {
       role: "PILOT",
       isActive: true,
       mustResetPw: true,
-      hdvBalanceMin: 0,
     },
     select: { id: true, email: true, name: true },
   });
@@ -85,6 +84,7 @@ export async function createPilot(formData: FormData) {
 
 const AdjustHdvSchema = z.object({
   pilotId: UuidSchema,
+  flightHourTypeId: UuidSchema,
   amountStr: z.string().min(1, "Durée obligatoire"),
   sign: z.enum(["credit", "debit"]),
   reason: NonEmptyTextSchema,
@@ -95,6 +95,7 @@ export async function adjustHdv(formData: FormData) {
 
   const parsed = AdjustHdvSchema.safeParse({
     pilotId: formData.get("pilotId"),
+    flightHourTypeId: formData.get("flightHourTypeId"),
     amountStr: formData.get("amount"),
     sign: formData.get("sign"),
     reason: formData.get("reason"),
@@ -111,28 +112,36 @@ export async function adjustHdv(formData: FormData) {
 
   const signed = parsed.data.sign === "credit" ? minutes : -minutes;
 
-  await prisma.$transaction(async (tx) => {
-    const pilot = await tx.user.findUnique({
-      where: { id: parsed.data.pilotId },
-      select: { id: true },
+  try {
+    await prisma.$transaction(async (tx) => {
+      const pilot = await tx.user.findUnique({
+        where: { id: parsed.data.pilotId },
+        select: { id: true },
+      });
+      if (!pilot) {
+        throw new Error(`Pilot ${parsed.data.pilotId} not found`);
+      }
+      await applyHdvMutation(tx, {
+        userId: parsed.data.pilotId,
+        flightHourTypeId: parsed.data.flightHourTypeId,
+        type: "ADMIN_ADJUSTMENT",
+        amountMin: signed,
+        reference: parsed.data.reason,
+        performedById: admin.user.id,
+        // Allow negative balance on admin debits — the operator knows
+        // what they're doing and may need to correct over-credited accounts.
+        allowNegative: true,
+      });
     });
-    if (!pilot) {
-      throw new Error(`Pilot ${parsed.data.pilotId} not found`);
+  } catch (err) {
+    if (err instanceof MixedTypeBalanceError) {
+      redirect(`/admin/pilots/${parsed.data.pilotId}?error=mixed_type`);
     }
-    await applyHdvMutation(tx, {
-      userId: parsed.data.pilotId,
-      type: "ADMIN_ADJUSTMENT",
-      amountMin: signed,
-      reference: parsed.data.reason,
-      performedById: admin.user.id,
-      // Allow negative balance on admin debits — the operator knows
-      // what they're doing and may need to correct over-credited accounts.
-      allowNegative: true,
-    });
-  });
+    throw err;
+  }
 
   console.log(
-    `[admin/pilots] ${admin.user.email} adjusted ${parsed.data.pilotId} by ${signed} min (reason: ${parsed.data.reason})`,
+    `[admin/pilots] ${admin.user.email} adjusted ${parsed.data.pilotId} by ${signed} min on type ${parsed.data.flightHourTypeId} (reason: ${parsed.data.reason})`,
   );
 
   revalidatePath(`/admin/pilots/${parsed.data.pilotId}`);

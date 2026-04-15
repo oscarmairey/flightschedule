@@ -43,12 +43,20 @@ export default async function AdminEditFlightPage({
     where: { id },
     include: {
       user: {
-        select: { id: true, name: true, email: true, hdvBalanceMin: true },
+        select: { id: true, name: true, email: true },
       },
     },
   });
 
   if (!flight) notFound();
+
+  // Net balance across all type wallets — surfaced in the header as
+  // context for the admin before they correct the flight.
+  const pilotBalanceAgg = await prisma.userFlightHourBalance.aggregate({
+    where: { userId: flight.user.id },
+    _sum: { balanceMin: true },
+  });
+  const pilotNetMin = pilotBalanceAgg._sum.balanceMin ?? 0;
 
   // Photo presign — same pattern as FlightHistory. Failed presigns
   // become "?" placeholders so a single missing blob doesn't break
@@ -123,9 +131,9 @@ export default async function AdminEditFlightPage({
               {formatHHMM(flight.actualDurationMin)}
             </span>
             <span className="mx-2">·</span>
-            solde du pilote{" "}
+            solde du pilote (net)&nbsp;
             <span className="font-semibold text-text">
-              {formatHHMM(flight.user.hdvBalanceMin)}
+              {formatHHMM(pilotNetMin)}
             </span>
           </p>
         </header>

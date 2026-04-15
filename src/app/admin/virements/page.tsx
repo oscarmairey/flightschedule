@@ -4,9 +4,10 @@
 //   - Virements en attente: PENDING rows, ordered oldest first (admins
 //     should process them FIFO, like any queue). Each row has "Valider"
 //     and "Refuser" buttons.
-//   - Historique: VALIDATED + REJECTED from the last 30 days for audit.
+//   - Historique: recent encaissements (Stripe + validated wires) plus
+//     rejected wire reviews from the last 30 days for audit.
 
-import { Banknote, CheckCircle2, XCircle } from "lucide-react";
+import { Banknote, CheckCircle2, CreditCard, XCircle } from "lucide-react";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
@@ -35,9 +36,14 @@ export default async function AdminVirementsPage({
   await requireAdmin();
   const sp = await searchParams;
 
+  const collectionYear = new Date().getUTCFullYear();
+  const yearStart = new Date(`${collectionYear}-01-01T00:00:00.000Z`);
+  const nextYearStart = new Date(
+    `${collectionYear + 1}-01-01T00:00:00.000Z`,
+  );
   const thirtyDaysAgo = new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  const [pending, history] = await Promise.all([
+  const [pending, bankTransferHistory, cardHistory, collectedByType] = await Promise.all([
     prisma.bankTransfer.findMany({
       where: { status: "PENDING" },
       orderBy: { createdAt: "asc" }, // FIFO
@@ -55,7 +61,66 @@ export default async function AdminVirementsPage({
         reviewedBy: { select: { name: true } },
       },
     }),
+    prisma.transaction.findMany({
+      where: {
+        type: "PACKAGE_PURCHASE",
+        priceCents: { not: null },
+        createdAt: { gte: thirtyDaysAgo },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      include: {
+        user: { select: { id: true, name: true } },
+        performedBy: { select: { name: true } },
+      },
+    }),
+    prisma.transaction.groupBy({
+      by: ["type"],
+      where: {
+        type: { in: ["PACKAGE_PURCHASE", "BANK_TRANSFER"] },
+        priceCents: { not: null },
+        createdAt: {
+          gte: yearStart,
+          lt: nextYearStart,
+        },
+      },
+      _sum: { priceCents: true },
+    }),
   ]);
+  const collectedByTypeMap = new Map(
+    collectedByType.map((row) => [row.type, row._sum.priceCents ?? 0]),
+  );
+  const cardCollectedCents = collectedByTypeMap.get("PACKAGE_PURCHASE") ?? 0;
+  const bankTransferCollectedCents =
+    collectedByTypeMap.get("BANK_TRANSFER") ?? 0;
+  const totalCollectedCents = cardCollectedCents + bankTransferCollectedCents;
+
+  type HistoryRow =
+    | {
+        kind: "bankTransfer";
+        at: Date;
+        data: (typeof bankTransferHistory)[number];
+      }
+    | {
+        kind: "cardPayment";
+        at: Date;
+        data: (typeof cardHistory)[number];
+      };
+
+  const history: HistoryRow[] = [
+    ...bankTransferHistory.map<HistoryRow>((row) => ({
+      kind: "bankTransfer",
+      at: row.reviewedAt ?? row.createdAt,
+      data: row,
+    })),
+    ...cardHistory.map<HistoryRow>((row) => ({
+      kind: "cardPayment",
+      at: row.createdAt,
+      data: row,
+    })),
+  ]
+    .sort((a, b) => b.at.getTime() - a.at.getTime())
+    .slice(0, 100);
 
   const banner = resolveBanner(sp, {
     validated: { tone: "success", msg: "Virement validé — solde crédité." },
@@ -86,6 +151,48 @@ export default async function AdminVirementsPage({
             <Alert tone={banner.tone}>{banner.msg}</Alert>
           </div>
         )}
+
+        <section className="mb-10 grid gap-4 md:grid-cols-3">
+          <Card>
+            <p className="text-xs font-medium uppercase tracking-[0.12em] text-text-subtle">
+              Total encaissé en {collectionYear}
+            </p>
+            <p className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong">
+              {formatEuros(totalCollectedCents)}
+            </p>
+            <p className="mt-2 text-sm text-text-muted">
+              Carte + virements validés.
+            </p>
+          </Card>
+          <Card>
+            <div className="flex items-center gap-2 text-text-subtle">
+              <CreditCard className="h-4 w-4" aria-hidden="true" />
+              <p className="text-xs font-medium uppercase tracking-[0.12em]">
+                Carte
+              </p>
+            </div>
+            <p className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong">
+              {formatEuros(cardCollectedCents)}
+            </p>
+            <p className="mt-2 text-sm text-text-muted">
+              Paiements Stripe validés.
+            </p>
+          </Card>
+          <Card>
+            <div className="flex items-center gap-2 text-text-subtle">
+              <Banknote className="h-4 w-4" aria-hidden="true" />
+              <p className="text-xs font-medium uppercase tracking-[0.12em]">
+                Virements
+              </p>
+            </div>
+            <p className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong">
+              {formatEuros(bankTransferCollectedCents)}
+            </p>
+            <p className="mt-2 text-sm text-text-muted">
+              Virements bancaires validés.
+            </p>
+          </Card>
+        </section>
 
         {/* Pending queue */}
         <section className="mb-14">
@@ -187,12 +294,58 @@ export default async function AdminVirementsPage({
                 Historique
               </h2>
               <p className="text-xs text-text-subtle">
-                30 derniers jours · {history.length} virement
+                30 derniers jours · {history.length} opération
                 {history.length !== 1 ? "s" : ""}
               </p>
             </div>
             <ul className="divide-y divide-border-subtle border-y border-border-subtle">
-              {history.map((bt) => {
+              {history.map((row) => {
+                if (row.kind === "cardPayment") {
+                  const tx = row.data;
+                  return (
+                    <li
+                      key={tx.id}
+                      className="flex flex-wrap items-start justify-between gap-3 py-4"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-text">
+                          {tx.user.name}
+                          <span className="mx-2 text-text-subtle">·</span>
+                          <span className="tabular text-text-muted">
+                            {formatHHMM(tx.amountMin)}
+                          </span>
+                          <span className="mx-2 text-text-subtle">·</span>
+                          <span className="tabular text-text-muted">
+                            {formatEuros(tx.priceCents ?? 0)}
+                          </span>
+                        </p>
+                        <p className="mt-0.5 text-xs tabular text-text-subtle">
+                          <span className="font-mono">
+                            {tx.reference ?? "Paiement carte"}
+                          </span>
+                          <span className="mx-1.5">·</span>
+                          {formatDateTimeFR(tx.createdAt)}
+                          {tx.performedBy?.name && (
+                            <>
+                              <span className="mx-1.5">·</span>
+                              {tx.performedBy.name}
+                            </>
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="info" size="sm">
+                          Carte
+                        </Badge>
+                        <Badge variant="success" size="sm">
+                          Validé
+                        </Badge>
+                      </div>
+                    </li>
+                  );
+                }
+
+                const bt = row.data;
                 const isValidated = bt.status === "VALIDATED";
                 return (
                   <li
@@ -228,12 +381,17 @@ export default async function AdminVirementsPage({
                         </p>
                       )}
                     </div>
-                    <Badge
-                      variant={isValidated ? "success" : "danger"}
-                      size="sm"
-                    >
-                      {isValidated ? "Validé" : "Refusé"}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="info" size="sm">
+                        Virement
+                      </Badge>
+                      <Badge
+                        variant={isValidated ? "success" : "danger"}
+                        size="sm"
+                      >
+                        {isValidated ? "Validé" : "Refusé"}
+                      </Badge>
+                    </div>
                   </li>
                 );
               })}

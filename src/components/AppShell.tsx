@@ -33,11 +33,10 @@ type NavItem = {
 const PILOT_ITEMS: NavItem[] = [
   { href: "/dashboard", label: COPY.nav.dashboard, Icon: LayoutGrid },
   { href: "/calendar", label: COPY.nav.calendar, Icon: CalendarDays },
-  { href: "/flights/new", label: COPY.nav.myFlights, Icon: Plane },
+  { href: "/flights", label: COPY.nav.myFlights, Icon: Plane },
 ];
 
 const ADMIN_ITEMS: { href: string; label: string }[] = [
-  { href: "/admin", label: COPY.nav.admin },
   { href: "/admin/pilots", label: COPY.nav.adminPilots },
   { href: "/admin/disponibilites", label: COPY.nav.adminDisponibilites },
   { href: "/admin/virements", label: COPY.nav.adminVirements },
@@ -136,10 +135,9 @@ export async function AppShell({ children }: { children: ReactNode }) {
       {/* Page content */}
       <main className="flex-1 pb-24 md:pb-0">{children}</main>
 
-      {/* Mobile bottom nav — pilot items, plus "Admin" entry for admins.
-          Admins get a 4th tab that lands on /admin; from there the overview
-          page's inline links reach every admin sub-route. Without this,
-          admins have no navigation chrome on mobile at all. */}
+      {/* Mobile bottom nav — pilot items, plus one admin entry point for
+          admins. The old /admin overview page is gone, so mobile lands
+          directly on the pilots admin list. */}
       <nav
         aria-label="Navigation principale"
         className="fixed inset-x-0 bottom-0 z-20 border-t border-border-subtle bg-surface-elevated/95 backdrop-blur md:hidden"
@@ -164,7 +162,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
           })}
           {isAdmin && (
             <Link
-              href="/admin"
+              href="/admin/pilots"
               className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[0.65rem] font-medium text-text-muted transition-colors hover:bg-surface-sunken hover:text-brand"
             >
               <Shield className="h-5 w-5" aria-hidden="true" />

@@ -62,6 +62,7 @@ const PackageInputSchema = z.object({
   // HDV input is HH:MM or bare minutes (see HdvMinutesFromString).
   hdvMinutes: HdvMinutesFromString,
   sortOrder: z.coerce.number().int().min(0).max(1000).default(0),
+  flightHourTypeId: UuidSchema,
 });
 
 export async function createPackage(formData: FormData) {
@@ -73,9 +74,19 @@ export async function createPackage(formData: FormData) {
     priceEUR: formData.get("priceEUR"),
     hdvMinutes: formData.get("hdvMinutes"),
     sortOrder: formData.get("sortOrder") ?? 0,
+    flightHourTypeId: formData.get("flightHourTypeId"),
   });
   if (!parsed.success) {
     redirect("/admin/tarifs?error=invalid");
+  }
+
+  // Confirm the selected type exists and is active.
+  const typeRow = await prisma.flightHourType.findUnique({
+    where: { id: parsed.data.flightHourTypeId },
+    select: { id: true, isActive: true },
+  });
+  if (!typeRow || !typeRow.isActive) {
+    redirect("/admin/tarifs?error=invalid_type");
   }
 
   const priceCentsHT = Math.round(parsed.data.priceEUR * 100);
@@ -132,6 +143,7 @@ export async function createPackage(formData: FormData) {
       hdvMinutes: parsed.data.hdvMinutes,
       sortOrder: parsed.data.sortOrder,
       isActive: true,
+      flightHourTypeId: parsed.data.flightHourTypeId,
     },
   });
 
@@ -152,9 +164,18 @@ export async function updatePackage(formData: FormData) {
     priceEUR: formData.get("priceEUR"),
     hdvMinutes: formData.get("hdvMinutes"),
     sortOrder: formData.get("sortOrder") ?? 0,
+    flightHourTypeId: formData.get("flightHourTypeId"),
   });
   if (!parsed.success) {
     redirect("/admin/tarifs?error=invalid");
+  }
+
+  const typeRow = await prisma.flightHourType.findUnique({
+    where: { id: parsed.data.flightHourTypeId },
+    select: { id: true, isActive: true },
+  });
+  if (!typeRow || !typeRow.isActive) {
+    redirect("/admin/tarifs?error=invalid_type");
   }
 
   const priceCentsHT = Math.round(parsed.data.priceEUR * 100);
@@ -226,6 +247,7 @@ export async function updatePackage(formData: FormData) {
       hdvMinutes: parsed.data.hdvMinutes,
       sortOrder: parsed.data.sortOrder,
       stripePriceId,
+      flightHourTypeId: parsed.data.flightHourTypeId,
     },
   });
 
@@ -361,6 +383,134 @@ export async function upsertBankAccount(formData: FormData) {
   revalidatePath("/admin/tarifs");
   revalidatePath("/dashboard");
   redirect("/admin/tarifs?bank=1");
+}
+
+// ─── FlightHourType CRUD (V2.4) ─────────────────────────────────────
+
+const FlightHourTypeInputSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  description: z
+    .string()
+    .trim()
+    .max(500)
+    .optional()
+    .transform((v) => (v === "" ? undefined : v)),
+});
+
+export async function createFlightHourType(formData: FormData) {
+  await requireAdmin();
+
+  const parsed = FlightHourTypeInputSchema.safeParse({
+    name: formData.get("name"),
+    description: formData.get("description") ?? undefined,
+  });
+  if (!parsed.success) {
+    redirect("/admin/tarifs?error=invalid_type");
+  }
+
+  try {
+    await prisma.flightHourType.create({
+      data: {
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+        isActive: true,
+      },
+    });
+  } catch (err) {
+    // P2002 = unique constraint on `name`.
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code === "P2002"
+    ) {
+      redirect("/admin/tarifs?error=duplicate_type");
+    }
+    throw err;
+  }
+
+  revalidatePath("/admin/tarifs");
+  revalidatePath("/dashboard");
+  redirect("/admin/tarifs?type_created=1");
+}
+
+export async function updateFlightHourType(formData: FormData) {
+  await requireAdmin();
+
+  const idResult = UuidSchema.safeParse(formData.get("id"));
+  if (!idResult.success) redirect("/admin/tarifs?error=invalid_type");
+
+  const parsed = FlightHourTypeInputSchema.safeParse({
+    name: formData.get("name"),
+    description: formData.get("description") ?? undefined,
+  });
+  if (!parsed.success) {
+    redirect("/admin/tarifs?error=invalid_type");
+  }
+
+  try {
+    await prisma.flightHourType.update({
+      where: { id: idResult.data },
+      data: {
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+      },
+    });
+  } catch (err) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code === "P2002"
+    ) {
+      redirect("/admin/tarifs?error=duplicate_type");
+    }
+    throw err;
+  }
+
+  revalidatePath("/admin/tarifs");
+  revalidatePath("/dashboard");
+  redirect("/admin/tarifs?type_updated=1");
+}
+
+export async function archiveFlightHourType(formData: FormData) {
+  await requireAdmin();
+  const idResult = UuidSchema.safeParse(formData.get("id"));
+  if (!idResult.success) redirect("/admin/tarifs?error=invalid_type");
+
+  // Don't let the admin archive a type that still has active packages.
+  // Archiving the packages first is intentional — otherwise pilots see
+  // blocked package cards on /dashboard with no obvious recovery path.
+  const activePackages = await prisma.package.count({
+    where: { flightHourTypeId: idResult.data, isActive: true },
+  });
+  if (activePackages > 0) {
+    redirect("/admin/tarifs?error=type_has_packages");
+  }
+
+  await prisma.flightHourType.update({
+    where: { id: idResult.data },
+    data: { isActive: false },
+  });
+
+  revalidatePath("/admin/tarifs");
+  revalidatePath("/dashboard");
+  redirect("/admin/tarifs?type_archived=1");
+}
+
+export async function unarchiveFlightHourType(formData: FormData) {
+  await requireAdmin();
+  const idResult = UuidSchema.safeParse(formData.get("id"));
+  if (!idResult.success) redirect("/admin/tarifs?error=invalid_type");
+
+  await prisma.flightHourType.update({
+    where: { id: idResult.data },
+    data: { isActive: true },
+  });
+
+  revalidatePath("/admin/tarifs");
+  revalidatePath("/dashboard");
+  redirect("/admin/tarifs?type_unarchived=1");
 }
 
 export async function unarchivePackage(formData: FormData) {

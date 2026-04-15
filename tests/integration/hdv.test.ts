@@ -1,16 +1,21 @@
-// Rule #2 — HDV ledger atomicity. Every Transaction + User.hdvBalanceMin
+// Rule #2 — HDV ledger atomicity. Every Transaction + UserFlightHourBalance
 // update goes through applyHdvMutation in one DB transaction. This suite
-// asserts the invariant: SUM(Transaction.amountMin) == User.hdvBalanceMin.
+// asserts the invariant for the Standard type:
+//   SUM(Transaction.amountMin WHERE type=Standard) == UserFlightHourBalance(Standard).balanceMin
 
 import { describe, it, expect } from "vitest";
 import { getTestPrisma } from "../setup/db";
-import { makeUser } from "../setup/factories";
+import {
+  makeUser,
+  ensureStandardFlightHourType,
+  getUserTypeBalance,
+} from "../setup/factories";
 import { applyHdvMutation, InsufficientBalanceError } from "@/lib/hdv";
 
-async function sumLedger(userId: string): Promise<number> {
+async function sumLedger(userId: string, typeId: string): Promise<number> {
   const prisma = getTestPrisma();
   const rows = await prisma.transaction.findMany({
-    where: { userId },
+    where: { userId, flightHourTypeId: typeId },
     select: { amountMin: true },
   });
   return rows.reduce((s, r) => s + r.amountMin, 0);
@@ -19,11 +24,13 @@ async function sumLedger(userId: string): Promise<number> {
 describe("applyHdvMutation — rule #2", () => {
   it("credits the balance and snapshots balanceAfterMin", async () => {
     const prisma = getTestPrisma();
+    const typeId = await ensureStandardFlightHourType();
     const user = await makeUser({ hdvBalanceMin: 0 });
 
     await prisma.$transaction(async (tx) => {
       await applyHdvMutation(tx, {
         userId: user.id,
+        flightHourTypeId: typeId,
         type: "PACKAGE_PURCHASE",
         amountMin: 300,
         performedById: user.id,
@@ -31,26 +38,26 @@ describe("applyHdvMutation — rule #2", () => {
       });
     });
 
-    const after = await prisma.user.findUniqueOrThrow({
-      where: { id: user.id },
-    });
-    expect(after.hdvBalanceMin).toBe(300);
+    expect(await getUserTypeBalance(user.id, typeId)).toBe(300);
 
-    const tx = await prisma.transaction.findFirstOrThrow({
+    const txRow = await prisma.transaction.findFirstOrThrow({
       where: { userId: user.id },
     });
-    expect(tx.amountMin).toBe(300);
-    expect(tx.balanceAfterMin).toBe(300);
-    expect(tx.reference).toBe("cs_test_123");
+    expect(txRow.amountMin).toBe(300);
+    expect(txRow.balanceAfterMin).toBe(300);
+    expect(txRow.reference).toBe("cs_test_123");
+    expect(txRow.flightHourTypeId).toBe(typeId);
   });
 
   it("debits the balance (FLIGHT_DEBIT with allowNegative)", async () => {
     const prisma = getTestPrisma();
+    const typeId = await ensureStandardFlightHourType();
     const user = await makeUser({ hdvBalanceMin: 60 });
 
     await prisma.$transaction(async (tx) => {
       await applyHdvMutation(tx, {
         userId: user.id,
+        flightHourTypeId: typeId,
         type: "FLIGHT_DEBIT",
         amountMin: -90,
         performedById: user.id,
@@ -58,20 +65,19 @@ describe("applyHdvMutation — rule #2", () => {
       });
     });
 
-    const after = await prisma.user.findUniqueOrThrow({
-      where: { id: user.id },
-    });
-    expect(after.hdvBalanceMin).toBe(-30);
+    expect(await getUserTypeBalance(user.id, typeId)).toBe(-30);
   });
 
   it("refuses debits that would overdraft when allowNegative=false", async () => {
     const prisma = getTestPrisma();
+    const typeId = await ensureStandardFlightHourType();
     const user = await makeUser({ hdvBalanceMin: 50 });
 
     await expect(
       prisma.$transaction(async (tx) => {
         await applyHdvMutation(tx, {
           userId: user.id,
+          flightHourTypeId: typeId,
           type: "ADMIN_ADJUSTMENT",
           amountMin: -100,
           performedById: user.id,
@@ -80,23 +86,21 @@ describe("applyHdvMutation — rule #2", () => {
       }),
     ).rejects.toBeInstanceOf(InsufficientBalanceError);
 
-    // No Transaction row should exist, balance unchanged.
     const txs = await prisma.transaction.count({ where: { userId: user.id } });
     expect(txs).toBe(0);
-    const after = await prisma.user.findUniqueOrThrow({
-      where: { id: user.id },
-    });
-    expect(after.hdvBalanceMin).toBe(50);
+    expect(await getUserTypeBalance(user.id, typeId)).toBe(50);
   });
 
   it("rolls back the entire transaction if a later step throws", async () => {
     const prisma = getTestPrisma();
+    const typeId = await ensureStandardFlightHourType();
     const user = await makeUser({ hdvBalanceMin: 100 });
 
     await expect(
       prisma.$transaction(async (tx) => {
         await applyHdvMutation(tx, {
           userId: user.id,
+          flightHourTypeId: typeId,
           type: "ADMIN_ADJUSTMENT",
           amountMin: 50,
           performedById: user.id,
@@ -105,21 +109,22 @@ describe("applyHdvMutation — rule #2", () => {
       }),
     ).rejects.toThrow(/abort/);
 
-    const after = await prisma.user.findUniqueOrThrow({
-      where: { id: user.id },
-    });
-    expect(after.hdvBalanceMin).toBe(100);
+    expect(await getUserTypeBalance(user.id, typeId)).toBe(100);
     expect(await prisma.transaction.count({ where: { userId: user.id } })).toBe(
       0,
     );
   });
 
-  it("keeps User.hdvBalanceMin == SUM(Transaction.amountMin) after N mixed ops", async () => {
+  it("keeps UserFlightHourBalance == SUM(Transaction.amountMin) after N mixed ops", async () => {
     const prisma = getTestPrisma();
+    const typeId = await ensureStandardFlightHourType();
     const user = await makeUser({ hdvBalanceMin: 0 });
     const admin = await makeUser({ role: "ADMIN" });
 
-    const ops: Array<{ type: Parameters<typeof applyHdvMutation>[1]["type"]; amt: number }> = [
+    const ops: Array<{
+      type: Parameters<typeof applyHdvMutation>[1]["type"];
+      amt: number;
+    }> = [
       { type: "PACKAGE_PURCHASE", amt: 600 },
       { type: "FLIGHT_DEBIT", amt: -90 },
       { type: "FLIGHT_DEBIT", amt: -120 },
@@ -134,6 +139,7 @@ describe("applyHdvMutation — rule #2", () => {
       await prisma.$transaction(async (tx) => {
         await applyHdvMutation(tx, {
           userId: user.id,
+          flightHourTypeId: typeId,
           type: op.type,
           amountMin: op.amt,
           performedById: admin.id,
@@ -142,23 +148,21 @@ describe("applyHdvMutation — rule #2", () => {
       });
     }
 
-    const after = await prisma.user.findUniqueOrThrow({
-      where: { id: user.id },
-    });
-    const ledger = await sumLedger(user.id);
-    expect(after.hdvBalanceMin).toBe(ledger);
-    expect(after.hdvBalanceMin).toBe(
-      ops.reduce((s, o) => s + o.amt, 0),
-    );
+    const balance = await getUserTypeBalance(user.id, typeId);
+    const ledger = await sumLedger(user.id, typeId);
+    expect(balance).toBe(ledger);
+    expect(balance).toBe(ops.reduce((s, o) => s + o.amt, 0));
   });
 
   it("rejects non-integer amountMin to avoid float drift", async () => {
     const prisma = getTestPrisma();
+    const typeId = await ensureStandardFlightHourType();
     const user = await makeUser({ hdvBalanceMin: 0 });
     await expect(
       prisma.$transaction(async (tx) => {
         await applyHdvMutation(tx, {
           userId: user.id,
+          flightHourTypeId: typeId,
           type: "ADMIN_ADJUSTMENT",
           amountMin: 1.5,
           performedById: user.id,
@@ -169,14 +173,15 @@ describe("applyHdvMutation — rule #2", () => {
 
   it("serialises two concurrent mutations without losing a Transaction", async () => {
     const prisma = getTestPrisma();
+    const typeId = await ensureStandardFlightHourType();
     const user = await makeUser({ hdvBalanceMin: 0 });
 
     // Seed the starting balance through the ledger so the invariant
-    // `hdvBalanceMin == SUM(amountMin)` holds at t0. Otherwise a direct
-    // User.hdvBalanceMin set skips the ledger and breaks rule #2.
+    // `balanceMin == SUM(amountMin)` holds at t0.
     await prisma.$transaction(async (tx) => {
       await applyHdvMutation(tx, {
         userId: user.id,
+        flightHourTypeId: typeId,
         type: "PACKAGE_PURCHASE",
         amountMin: 1000,
         performedById: user.id,
@@ -184,10 +189,6 @@ describe("applyHdvMutation — rule #2", () => {
       });
     });
 
-    // Run two concurrent debits under Serializable. Postgres may abort
-    // one with P2034 — we retry it once inline. The invariant after both
-    // succeed is that three Transaction rows exist (seed + 2 debits) and
-    // the balance reflects both.
     const DEBIT_EACH = -100;
 
     async function doDebit(): Promise<void> {
@@ -197,6 +198,7 @@ describe("applyHdvMutation — rule #2", () => {
             async (tx) => {
               await applyHdvMutation(tx, {
                 userId: user.id,
+                flightHourTypeId: typeId,
                 type: "FLIGHT_DEBIT",
                 amountMin: DEBIT_EACH,
                 performedById: user.id,
@@ -216,14 +218,12 @@ describe("applyHdvMutation — rule #2", () => {
 
     await Promise.all([doDebit(), doDebit()]);
 
-    const after = await prisma.user.findUniqueOrThrow({
-      where: { id: user.id },
-    });
+    const balance = await getUserTypeBalance(user.id, typeId);
     const count = await prisma.transaction.count({
       where: { userId: user.id },
     });
     expect(count).toBe(3); // seed + 2 debits
-    expect(after.hdvBalanceMin).toBe(1000 + 2 * DEBIT_EACH);
-    expect(after.hdvBalanceMin).toBe(await sumLedger(user.id));
+    expect(balance).toBe(1000 + 2 * DEBIT_EACH);
+    expect(balance).toBe(await sumLedger(user.id, typeId));
   });
 });

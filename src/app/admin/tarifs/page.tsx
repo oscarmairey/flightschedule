@@ -25,6 +25,10 @@ import {
   archivePackage,
   unarchivePackage,
   upsertBankAccount,
+  createFlightHourType,
+  updateFlightHourType,
+  archiveFlightHourType,
+  unarchiveFlightHourType,
 } from "./actions";
 
 function formatEUR(cents: number): string {
@@ -34,7 +38,7 @@ function formatEUR(cents: number): string {
   });
 }
 
-type TarifsSection = "forfaits" | "banque";
+type TarifsSection = "forfaits" | "types" | "banque";
 
 export default async function AdminTarifsPage({
   searchParams,
@@ -48,32 +52,58 @@ export default async function AdminTarifsPage({
     unarchived?: string;
     bank?: string;
     section?: string;
+    type_created?: string;
+    type_updated?: string;
+    type_archived?: string;
+    type_unarchived?: string;
   }>;
 }) {
   await requireAdmin();
   const sp = await searchParams;
 
+  const isTypeSection =
+    sp.section === "types" ||
+    sp.type_created === "1" ||
+    sp.type_updated === "1" ||
+    sp.type_archived === "1" ||
+    sp.type_unarchived === "1" ||
+    sp.error === "invalid_type" ||
+    sp.error === "duplicate_type" ||
+    sp.error === "type_has_packages";
+
   // URL-driven tab state. `bank=1` (set by the upsertBankAccount server
   // action on success) auto-jumps to the Banque tab so the admin lands
   // on the confirmation. Otherwise respect `?section=…` or default.
-  const section: TarifsSection =
-    sp.section === "banque" || sp.bank === "1" || sp.error === "invalid_bank"
+  const section: TarifsSection = isTypeSection
+    ? "types"
+    : sp.section === "banque" || sp.bank === "1" || sp.error === "invalid_bank"
       ? "banque"
       : "forfaits";
 
-  const [active, archived, bankAccount] = await Promise.all([
+  const [active, archived, bankAccount, allTypes] = await Promise.all([
     prisma.package.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: "asc" },
+      include: {
+        flightHourType: { select: { id: true, name: true } },
+      },
     }),
     prisma.package.findMany({
       where: { isActive: false },
       orderBy: { updatedAt: "desc" },
+      include: {
+        flightHourType: { select: { id: true, name: true } },
+      },
     }),
     prisma.bankAccount.findFirst({
       orderBy: { updatedAt: "desc" },
     }),
+    prisma.flightHourType.findMany({
+      orderBy: [{ isActive: "desc" }, { name: "asc" }],
+    }),
   ]);
+  const activeTypes = allTypes.filter((t) => t.isActive);
+  const archivedTypes = allTypes.filter((t) => !t.isActive);
 
   const banner = resolveBanner(sp, {
     created: { tone: "success", msg: "Forfait créé." },
@@ -81,6 +111,10 @@ export default async function AdminTarifsPage({
     archived: { tone: "success", msg: "Forfait archivé." },
     unarchived: { tone: "success", msg: "Forfait réactivé." },
     bank: { tone: "success", msg: "Coordonnées bancaires enregistrées." },
+    type_created: { tone: "success", msg: "Type d'heures créé." },
+    type_updated: { tone: "success", msg: "Type d'heures mis à jour." },
+    type_archived: { tone: "success", msg: "Type d'heures archivé." },
+    type_unarchived: { tone: "success", msg: "Type d'heures réactivé." },
     "error:invalid_bank": {
       tone: "error",
       msg: "Coordonnées bancaires invalides (IBAN / BIC).",
@@ -88,6 +122,19 @@ export default async function AdminTarifsPage({
     "error:stripe": {
       tone: "error",
       msg: (sp) => `Erreur Stripe : ${sp.msg ?? "détails indisponibles"}`,
+    },
+    "error:invalid_type": {
+      tone: "error",
+      msg: "Type d'heures invalide ou inactif.",
+    },
+    "error:duplicate_type": {
+      tone: "error",
+      msg: "Un type d'heures porte déjà ce nom.",
+    },
+    "error:type_has_packages": {
+      tone: "error",
+      msg:
+        "Impossible d'archiver : ce type est encore utilisé par un ou plusieurs forfaits actifs. Archivez ces forfaits d'abord.",
     },
     "error:invalid": { tone: "error", msg: COPY.errors.invalidInput },
   });
@@ -123,6 +170,12 @@ export default async function AdminTarifsPage({
             Forfaits ({active.length})
           </TabLink>
           <TabLink
+            href="/admin/tarifs?section=types"
+            active={section === "types"}
+          >
+            Types d&apos;heures ({activeTypes.length})
+          </TabLink>
+          <TabLink
             href="/admin/tarifs?section=banque"
             active={section === "banque"}
           >
@@ -138,6 +191,21 @@ export default async function AdminTarifsPage({
 
         {section === "forfaits" && (
           <>
+        {activeTypes.length === 0 && (
+          <div className="mb-6">
+            <Alert tone="info">
+              Aucun type d&apos;heures actif. Créez d&apos;abord un type dans
+              l&apos;onglet{" "}
+              <a
+                href="/admin/tarifs?section=types"
+                className="font-medium underline"
+              >
+                Types d&apos;heures
+              </a>{" "}
+              avant de pouvoir créer un forfait.
+            </Alert>
+          </div>
+        )}
         {/* Create form */}
         <Card className="mb-12">
           <CardHeader>
@@ -160,6 +228,30 @@ export default async function AdminTarifsPage({
                 maxLength={120}
                 placeholder="Ex : Standard"
               />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="new-flightHourTypeId" required>
+                Type d&apos;heures
+              </Label>
+              <select
+                id="new-flightHourTypeId"
+                name="flightHourTypeId"
+                required
+                disabled={activeTypes.length === 0}
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-base text-text focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-soft disabled:cursor-not-allowed disabled:opacity-60"
+                defaultValue=""
+              >
+                <option value="" disabled>
+                  {activeTypes.length === 0
+                    ? "Aucun type disponible"
+                    : "Choisir un type…"}
+                </option>
+                {activeTypes.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="new-description">Description</Label>
@@ -252,12 +344,39 @@ export default async function AdminTarifsPage({
                           </h3>
                           <p className="text-xs text-text-subtle">
                             {formatEUR(pkg.priceCentsHT)} HT ·{" "}
-                            {formatHHMM(pkg.hdvMinutes)}
+                            {formatHHMM(pkg.hdvMinutes)} ·{" "}
+                            {pkg.flightHourType.name}
                           </p>
                         </div>
                         <Badge variant="success" size="sm">
                           Actif
                         </Badge>
+                      </div>
+                      <div className="space-y-1.5 sm:col-span-2">
+                        <Label htmlFor={`type-${pkg.id}`} required>
+                          Type d&apos;heures
+                        </Label>
+                        <select
+                          id={`type-${pkg.id}`}
+                          name="flightHourTypeId"
+                          required
+                          defaultValue={pkg.flightHourTypeId}
+                          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-base text-text focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-soft"
+                        >
+                          {/* Always include current type (even if archived) so the form isn't broken. */}
+                          {!activeTypes.find(
+                            (t) => t.id === pkg.flightHourTypeId,
+                          ) && (
+                            <option value={pkg.flightHourTypeId}>
+                              {pkg.flightHourType.name} (archivé)
+                            </option>
+                          )}
+                          {activeTypes.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div className="space-y-1.5 sm:col-span-2">
                         <Label htmlFor={`name-${pkg.id}`} required>
@@ -383,7 +502,7 @@ export default async function AdminTarifsPage({
                     </p>
                     <p className="text-xs tabular text-text-subtle">
                       {formatEUR(pkg.priceCentsHT)} HT ·{" "}
-                      {formatHHMM(pkg.hdvMinutes)}
+                      {formatHHMM(pkg.hdvMinutes)} · {pkg.flightHourType.name}
                     </p>
                   </div>
                   <form action={unarchivePackage}>
@@ -399,6 +518,179 @@ export default async function AdminTarifsPage({
           </section>
         )}
 
+          </>
+        )}
+
+        {section === "types" && (
+          <>
+            <Card className="mb-12">
+              <CardHeader>
+                <CardTitle>Nouveau type d&apos;heures</CardTitle>
+                <CardDescription>
+                  Chaque forfait doit être rattaché à un type (ex : École,
+                  Voyage, Local). Un pilote ne peut détenir des heures que
+                  d&apos;un seul type à la fois.
+                </CardDescription>
+              </CardHeader>
+              <form
+                action={createFlightHourType}
+                className="grid gap-4 sm:grid-cols-2"
+              >
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="new-type-name" required>
+                    Nom
+                  </Label>
+                  <Input
+                    id="new-type-name"
+                    name="name"
+                    type="text"
+                    required
+                    maxLength={60}
+                    placeholder="Ex : École"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="new-type-description">Description</Label>
+                  <Input
+                    id="new-type-description"
+                    name="description"
+                    type="text"
+                    maxLength={500}
+                    placeholder="facultatif"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Button type="submit">
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    Créer le type
+                  </Button>
+                </div>
+              </form>
+            </Card>
+
+            <section className="mb-12">
+              <h2 className="font-display mb-4 text-2xl font-semibold tracking-tight text-text-strong">
+                Types actifs ({activeTypes.length})
+              </h2>
+              {activeTypes.length === 0 ? (
+                <Card tone="sunken">
+                  <p className="text-sm text-text-muted">
+                    Aucun type d&apos;heures. Créez-en un ci-dessus pour
+                    pouvoir créer des forfaits.
+                  </p>
+                </Card>
+              ) : (
+                <ul className="space-y-4">
+                  {activeTypes.map((t) => (
+                    <li key={t.id}>
+                      <Card>
+                        <form
+                          action={updateFlightHourType}
+                          className="grid gap-4 sm:grid-cols-2"
+                        >
+                          <input type="hidden" name="id" value={t.id} />
+                          <div className="sm:col-span-2 flex flex-wrap items-baseline justify-between gap-3">
+                            <div>
+                              <h3 className="font-display text-lg font-semibold text-text-strong">
+                                {t.name}
+                              </h3>
+                            </div>
+                            <Badge variant="success" size="sm">
+                              Actif
+                            </Badge>
+                          </div>
+                          <div className="space-y-1.5 sm:col-span-2">
+                            <Label htmlFor={`type-name-${t.id}`} required>
+                              Nom
+                            </Label>
+                            <Input
+                              id={`type-name-${t.id}`}
+                              name="name"
+                              type="text"
+                              required
+                              maxLength={60}
+                              defaultValue={t.name}
+                            />
+                          </div>
+                          <div className="space-y-1.5 sm:col-span-2">
+                            <Label htmlFor={`type-desc-${t.id}`}>
+                              Description
+                            </Label>
+                            <Input
+                              id={`type-desc-${t.id}`}
+                              name="description"
+                              type="text"
+                              maxLength={500}
+                              defaultValue={t.description ?? ""}
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <Button type="submit">Enregistrer</Button>
+                          </div>
+                        </form>
+                        <div className="mt-4 border-t border-border-subtle pt-4">
+                          <ConfirmButton
+                            formAction={archiveFlightHourType}
+                            hidden={{ id: t.id }}
+                            triggerLabel={
+                              <>
+                                <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                Archiver ce type
+                              </>
+                            }
+                            triggerVariant="ghost"
+                            triggerSize="sm"
+                            title="Archiver ce type d'heures ?"
+                            body={
+                              <>
+                                <span className="font-semibold text-text">
+                                  {t.name}
+                                </span>{" "}
+                                ne sera plus proposé à la création d&apos;un
+                                forfait. Les forfaits et transactions
+                                historiques qui y sont rattachés restent
+                                intacts.
+                              </>
+                            }
+                            confirmLabel="Archiver"
+                            confirmVariant="danger"
+                          />
+                        </div>
+                      </Card>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {archivedTypes.length > 0 && (
+              <section>
+                <h2 className="font-display mb-4 text-2xl font-semibold tracking-tight text-text-strong">
+                  Types archivés ({archivedTypes.length})
+                </h2>
+                <ul className="divide-y divide-border-subtle border-y border-border-subtle">
+                  {archivedTypes.map((t) => (
+                    <li
+                      key={t.id}
+                      className="flex flex-wrap items-center justify-between gap-3 py-4 opacity-70"
+                    >
+                      <div>
+                        <p className="font-display text-base font-semibold text-text-strong">
+                          {t.name}
+                        </p>
+                      </div>
+                      <form action={unarchiveFlightHourType}>
+                        <input type="hidden" name="id" value={t.id} />
+                        <Button type="submit" variant="secondary" size="sm">
+                          <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                          Réactiver
+                        </Button>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </>
         )}
 

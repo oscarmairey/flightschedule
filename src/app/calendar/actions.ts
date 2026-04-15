@@ -23,6 +23,38 @@ import {
 import { parisLocalToUtc } from "@/lib/format";
 import { UuidSchema } from "@/lib/validation";
 
+const ReservationCommentSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .optional()
+  .transform((v) => (v === "" ? undefined : v));
+
+const EstimatedFlightHoursSchema = z
+  .string()
+  .trim()
+  .optional()
+  .transform((v, ctx) => {
+    if (v === undefined || v === "") return undefined;
+    const normalized = v.replace(",", ".");
+    if (!/^\d{1,3}(\.\d{1,2})?$/.test(normalized)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "HDV estimée invalide.",
+      });
+      return z.NEVER;
+    }
+    const numeric = Number(normalized);
+    if (!Number.isFinite(numeric) || numeric <= 0 || numeric > 999.99) {
+      ctx.addIssue({
+        code: "custom",
+        message: "HDV estimée invalide.",
+      });
+      return z.NEVER;
+    }
+    return numeric;
+  });
+
 const BookSchema = z.object({
   // YYYY-MM-DD in Europe/Paris (HTML5 `<input type="date">` value format)
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -30,16 +62,21 @@ const BookSchema = z.object({
   startTime: z.string().regex(/^\d{1,2}:\d{2}$/),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   endTime: z.string().regex(/^\d{1,2}:\d{2}$/),
+  comment: ReservationCommentSchema,
+  estimatedFlightHours: EstimatedFlightHoursSchema,
 });
 
 export async function createReservation(formData: FormData) {
   const session = await requireSession();
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { hdvBalanceMin: true },
+  // V2.4: check the sum of per-type balances. Any single wallet going
+  // negative is enough to block a new reservation (same semantics as the
+  // old single-column global balance).
+  const balanceAgg = await prisma.userFlightHourBalance.aggregate({
+    where: { userId: session.user.id },
+    _sum: { balanceMin: true },
   });
-  if ((user?.hdvBalanceMin ?? 0) < 0) {
+  if ((balanceAgg._sum.balanceMin ?? 0) < 0) {
     redirect("/calendar?error=negative_balance");
   }
 
@@ -48,6 +85,8 @@ export async function createReservation(formData: FormData) {
     startTime: formData.get("startTime"),
     endDate: formData.get("endDate"),
     endTime: formData.get("endTime"),
+    comment: formData.get("comment") ?? undefined,
+    estimatedFlightHours: formData.get("estimatedFlightHours") ?? undefined,
   });
   if (!parsed.success) {
     redirect("/calendar?error=invalid");
@@ -76,6 +115,8 @@ export async function createReservation(formData: FormData) {
       userId: session.user.id,
       startsAtUtc,
       endsAtUtc,
+      comment: parsed.data.comment,
+      estimatedFlightHours: parsed.data.estimatedFlightHours,
     });
   } catch (err) {
     if (err instanceof OverlapError) {

@@ -28,6 +28,7 @@ import {
 } from "@/lib/duration";
 import { parisLocalDateString } from "@/lib/format";
 import { applyHdvMutation } from "@/lib/hdv";
+import { resolveActiveFlightHourType } from "@/lib/flightHourTypes";
 import { IcaoSchema } from "@/lib/validation";
 
 const HHMMRequired = z.string().regex(/^\d{1,2}:\d{2}$/, "Format HH:MM attendu");
@@ -64,7 +65,7 @@ export async function submitFlight(formData: FormData) {
     remarks: formData.get("remarks") || undefined,
   });
   if (!parsed.success) {
-    redirect("/flights/new?error=invalid");
+    redirect("/flights?error=invalid");
   }
 
   // Compute UTC instants and duration from the bloc OFF / bloc ON times.
@@ -82,7 +83,7 @@ export async function submitFlight(formData: FormData) {
     actualDurationMin = result.durationMin;
   } catch (err) {
     if (err instanceof EngineTimesError) {
-      redirect(`/flights/new?error=engine&msg=${encodeURIComponent(err.message)}`);
+      redirect(`/flights?error=engine&msg=${encodeURIComponent(err.message)}`);
     }
     throw err;
   }
@@ -93,7 +94,7 @@ export async function submitFlight(formData: FormData) {
   const nowUtc = new Date();
   if (endsAtUtc.getTime() > nowUtc.getTime() + 60_000) {
     redirect(
-      `/flights/new?error=engine&msg=${encodeURIComponent(
+      `/flights?error=engine&msg=${encodeURIComponent(
         "Un vol ne peut pas être enregistré dans le futur.",
       )}`,
     );
@@ -109,7 +110,7 @@ export async function submitFlight(formData: FormData) {
   if (rawTachStart || rawTachStop) {
     if (!rawTachStart || !rawTachStop) {
       redirect(
-        `/flights/new?error=engine&msg=${encodeURIComponent(
+        `/flights?error=engine&msg=${encodeURIComponent(
           "Renseignez TACHY départ ET arrivée, ou laissez les deux vides.",
         )}`,
       );
@@ -118,14 +119,14 @@ export async function submitFlight(formData: FormData) {
     const te = parseTachyToHundredths(rawTachStop);
     if (ts === null || te === null) {
       redirect(
-        `/flights/new?error=engine&msg=${encodeURIComponent(
+        `/flights?error=engine&msg=${encodeURIComponent(
           "Format TACHY invalide (attendu XXXX.XX).",
         )}`,
       );
     }
     if (te < ts) {
       redirect(
-        `/flights/new?error=engine&msg=${encodeURIComponent(
+        `/flights?error=engine&msg=${encodeURIComponent(
           "TACHY arrivée doit être supérieur à TACHY départ.",
         )}`,
       );
@@ -137,14 +138,14 @@ export async function submitFlight(formData: FormData) {
   // Photo keys (rule #6) — V2: optional, but still validated when present.
   const rawKeys = formData.getAll("photoKeys").filter((v) => typeof v === "string") as string[];
   if (rawKeys.length > PHOTO_LIMITS.MAX_PHOTOS_PER_FLIGHT) {
-    redirect("/flights/new?error=too_many_photos");
+    redirect("/flights?error=too_many_photos");
   }
   for (const key of rawKeys) {
     if (!isPhotoKeyOwnedBy(key, session.user.id)) {
       console.warn(
         `[flights/new] Pilot ${session.user.id} submitted alien photo key ${key}`,
       );
-      redirect("/flights/new?error=bad_photo_key");
+      redirect("/flights?error=bad_photo_key");
     }
   }
   if (rawKeys.length > 0) {
@@ -152,7 +153,7 @@ export async function submitFlight(formData: FormData) {
       await Promise.all(rawKeys.map((k) => headObject(k)));
     } catch (err) {
       console.error("[flights/new] photo HEAD failed:", err);
-      redirect("/flights/new?error=photo_missing");
+      redirect("/flights?error=photo_missing");
     }
   }
 
@@ -197,15 +198,32 @@ export async function submitFlight(formData: FormData) {
       endsAtUtc.getTime() > neighbourRange.startsAtUtc.getTime();
     if (overlaps) {
       redirect(
-        `/flights/new?error=engine&msg=${encodeURIComponent(
+        `/flights?error=engine&msg=${encodeURIComponent(
           "Un vol existe déjà sur ce créneau horaire.",
         )}`,
       );
     }
   }
 
+  // Resolve the active type up-front so we can surface a clean French
+  // error redirect on the rare "no Transaction history at all" case
+  // before we open the serializable transaction below.
+  const activeTypeId = await resolveActiveFlightHourType(
+    prisma,
+    session.user.id,
+  );
+  if (!activeTypeId) {
+    redirect(
+      `/flights?error=no_active_type&msg=${encodeURIComponent(
+        "Aucun forfait actif — contactez l'administrateur avant de saisir un vol.",
+      )}`,
+    );
+  }
+
   await prisma.$transaction(
     async (tx) => {
+      const flightHourTypeId = activeTypeId;
+
       const flight = await tx.flight.create({
         data: {
           userId: session.user.id,
@@ -226,6 +244,7 @@ export async function submitFlight(formData: FormData) {
 
       await applyHdvMutation(tx, {
         userId: session.user.id,
+        flightHourTypeId,
         type: "FLIGHT_DEBIT",
         amountMin: -actualDurationMin,
         flightId: flight.id,
@@ -239,5 +258,5 @@ export async function submitFlight(formData: FormData) {
   revalidatePath("/flights");
   revalidatePath("/dashboard");
   revalidatePath("/calendar");
-  redirect(`/flights/new?added=1`);
+  redirect("/flights?added=1");
 }

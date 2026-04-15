@@ -277,8 +277,23 @@ export async function updateFlightAsAdmin(formData: FormData) {
       });
 
       if (compensationMin !== 0) {
+        // Find the original FLIGHT_DEBIT so we compensate on the SAME
+        // FlightHourType wallet — regardless of what type the pilot is
+        // currently flying. Preserves the ledger invariant per type.
+        const originalDebit = await tx.transaction.findFirst({
+          where: { flightId: locked.id, type: "FLIGHT_DEBIT" },
+          select: { flightHourTypeId: true },
+          orderBy: { createdAt: "asc" },
+        });
+        if (!originalDebit) {
+          throw new Error(
+            `No FLIGHT_DEBIT transaction found for flight ${locked.id}`,
+          );
+        }
+
         await applyHdvMutation(tx, {
           userId: locked.userId,
+          flightHourTypeId: originalDebit.flightHourTypeId,
           type: "ADMIN_ADJUSTMENT",
           amountMin: compensationMin,
           flightId: locked.id,
@@ -288,6 +303,10 @@ export async function updateFlightAsAdmin(formData: FormData) {
           // compensation must too, otherwise an admin trying to LENGTHEN
           // a flight on a low-balance pilot would be blocked.
           allowNegative: true,
+          // A retroactive correction may land on a "past" wallet while
+          // the pilot currently holds hours in another type. That's
+          // expected — the invariant guards NEW credits, not corrections.
+          skipInvariantCheck: true,
         });
       }
     },

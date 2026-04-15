@@ -22,7 +22,8 @@ import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { getStripe } from "@/lib/stripe";
 import { getOrCreateStripeCustomer } from "@/lib/stripe-customer";
-import { applyHdvMutation } from "@/lib/hdv";
+import { applyHdvMutation, MixedTypeBalanceError } from "@/lib/hdv";
+import { assertSingleActiveTypeForCredit } from "@/lib/flightHourTypes";
 import { UuidSchema } from "@/lib/validation";
 import { computePriceCentsTTC } from "@/lib/pricing";
 import { generatePaymentRef } from "@/lib/payment-ref";
@@ -109,10 +110,25 @@ export async function createCheckoutSession(formData: FormData) {
       hdvMinutes: true,
       isActive: true,
       stripePriceId: true,
+      flightHourTypeId: true,
     },
   });
   if (!pkg || !pkg.isActive) {
     redirect("/dashboard?error=invalid_package");
+  }
+
+  // Pre-checkout invariant guard — fail fast before a Stripe redirect.
+  try {
+    await assertSingleActiveTypeForCredit(
+      prisma,
+      session.user.id,
+      pkg.flightHourTypeId,
+    );
+  } catch (err) {
+    if (err instanceof MixedTypeBalanceError) {
+      redirect("/dashboard?error=mixed_type");
+    }
+    throw err;
   }
 
   const appUrl =
@@ -129,6 +145,7 @@ export async function createCheckoutSession(formData: FormData) {
       flyPackageId: pkg.id,
       flyHdvMin: String(pkg.hdvMinutes),
       flyUserId: session.user.id,
+      flyFlightHourTypeId: pkg.flightHourTypeId,
     },
     automatic_tax: { enabled: true },
     success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
@@ -160,7 +177,12 @@ export async function prepareCardCheckout(
   const [pkg, user] = await Promise.all([
     prisma.package.findUnique({
       where: { id: idResult.data },
-      select: { id: true, isActive: true, priceCentsHT: true },
+      select: {
+        id: true,
+        isActive: true,
+        priceCentsHT: true,
+        flightHourTypeId: true,
+      },
     }),
     prisma.user.findUnique({
       where: { id: session.user.id },
@@ -177,6 +199,15 @@ export async function prepareCardCheckout(
   }
   if (!user) {
     return { ok: false, error: COPY.errors.forbidden };
+  }
+
+  try {
+    await assertSingleActiveTypeForCredit(prisma, user.id, pkg.flightHourTypeId);
+  } catch (err) {
+    if (err instanceof MixedTypeBalanceError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   const customerId = await getOrCreateStripeCustomer(prisma, user);
@@ -221,7 +252,13 @@ export async function createCardPaymentIntent(
   const [pkg, user] = await Promise.all([
     prisma.package.findUnique({
       where: { id: idResult.data },
-      select: { id: true, isActive: true, priceCentsHT: true, hdvMinutes: true },
+      select: {
+        id: true,
+        isActive: true,
+        priceCentsHT: true,
+        hdvMinutes: true,
+        flightHourTypeId: true,
+      },
     }),
     prisma.user.findUnique({
       where: { id: session.user.id },
@@ -240,6 +277,15 @@ export async function createCardPaymentIntent(
     return { ok: false, error: COPY.errors.forbidden };
   }
 
+  try {
+    await assertSingleActiveTypeForCredit(prisma, user.id, pkg.flightHourTypeId);
+  } catch (err) {
+    if (err instanceof MixedTypeBalanceError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
+  }
+
   const customerId = await getOrCreateStripeCustomer(prisma, user);
 
   const stripe = getStripe();
@@ -255,6 +301,7 @@ export async function createCardPaymentIntent(
       flyPackageId: pkg.id,
       flyHdvMin: String(pkg.hdvMinutes),
       flyUserId: user.id,
+      flyFlightHourTypeId: pkg.flightHourTypeId,
     },
   });
 
@@ -312,6 +359,15 @@ export async function finalizeCardPayment(
     );
   }
 
+  const flightHourTypeId =
+    pi.metadata?.flyFlightHourTypeId ??
+    (await resolveFlightHourTypeFromPackageMetadata(pi.metadata?.flyPackageId));
+  if (!flightHourTypeId) {
+    throw new Error(
+      `finalizeCardPayment: missing flyFlightHourTypeId on ${paymentIntentId}`,
+    );
+  }
+
   await prisma.$transaction(
     async (tx) => {
       // Idempotency (rule #5) — keyed on the PI id.
@@ -325,6 +381,7 @@ export async function finalizeCardPayment(
 
       await applyHdvMutation(tx, {
         userId: session.user.id,
+        flightHourTypeId,
         type: "PACKAGE_PURCHASE",
         amountMin: minutes,
         reference: pi.id,
@@ -350,6 +407,23 @@ export async function finalizeCardPayment(
   }
 }
 
+/**
+ * Fallback lookup for PaymentIntents created before the V2.4 metadata
+ * shape shipped. Finds the Package via `flyPackageId` and returns its
+ * current `flightHourTypeId`. Only used by `finalizeCardPayment` when the
+ * PI metadata doesn't carry the type id directly.
+ */
+async function resolveFlightHourTypeFromPackageMetadata(
+  packageId: string | undefined,
+): Promise<string | null> {
+  if (!packageId) return null;
+  const pkg = await prisma.package.findUnique({
+    where: { id: packageId },
+    select: { flightHourTypeId: true },
+  });
+  return pkg?.flightHourTypeId ?? null;
+}
+
 // ────────────────────────────────────────────────────────────────────
 // Bank tab — two-phase: prepare (no DB) → confirm (insert PENDING)
 // ────────────────────────────────────────────────────────────────────
@@ -361,7 +435,7 @@ export async function finalizeCardPayment(
 export async function prepareBankTransfer(
   packageId: string,
 ): Promise<PrepareBankTransferResult> {
-  await requireSession();
+  const session = await requireSession();
 
   const idResult = UuidSchema.safeParse(packageId);
   if (!idResult.success) {
@@ -376,6 +450,7 @@ export async function prepareBankTransfer(
         isActive: true,
         priceCentsHT: true,
         hdvMinutes: true,
+        flightHourTypeId: true,
       },
     }),
     prisma.bankAccount.findFirst({
@@ -395,6 +470,19 @@ export async function prepareBankTransfer(
   }
   if (!bank) {
     return { ok: false, error: COPY.payment.bankNotConfigured };
+  }
+
+  try {
+    await assertSingleActiveTypeForCredit(
+      prisma,
+      session.user.id,
+      pkg.flightHourTypeId,
+    );
+  } catch (err) {
+    if (err instanceof MixedTypeBalanceError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   return {
@@ -432,10 +520,25 @@ export async function confirmBankTransfer(
       isActive: true,
       priceCentsHT: true,
       hdvMinutes: true,
+      flightHourTypeId: true,
+      flightHourType: { select: { name: true } },
     },
   });
   if (!pkg || !pkg.isActive) {
     return { ok: false, error: COPY.errors.notFound };
+  }
+
+  try {
+    await assertSingleActiveTypeForCredit(
+      prisma,
+      session.user.id,
+      pkg.flightHourTypeId,
+    );
+  } catch (err) {
+    if (err instanceof MixedTypeBalanceError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   // Light validation of the reference format to reject obvious tampering.
@@ -453,6 +556,8 @@ export async function confirmBankTransfer(
           hdvMinutes: pkg.hdvMinutes,
           priceCentsTTC: computePriceCentsTTC(pkg.priceCentsHT),
           reference: nextRef,
+          flightHourTypeId: pkg.flightHourTypeId,
+          flightHourTypeName: pkg.flightHourType.name,
           // status defaults to PENDING
         },
       });

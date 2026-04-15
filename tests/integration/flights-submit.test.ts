@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getTestPrisma } from "../setup/db";
-import { makeUser } from "../setup/factories";
+import { makeUser, getUserNetBalance } from "../setup/factories";
 import { markUploaded } from "../setup/mocks";
 import { makePhotoKey } from "@/lib/r2";
 
@@ -104,10 +104,7 @@ describe("submitFlight — rule #3b", () => {
     expect(tx.amountMin).toBe(-90);
     expect(tx.flightId).toBe(flight.id);
 
-    const after = await prisma.user.findUniqueOrThrow({
-      where: { id: pilot.id },
-    });
-    expect(after.hdvBalanceMin).toBe(510);
+    expect(await getUserNetBalance(pilot.id)).toBe(510);
   });
 
   it("rejects a flight in the future", async () => {
@@ -184,10 +181,7 @@ describe("submitFlight — rule #3b", () => {
         landings: "1",
       }),
     );
-    const after = await prisma.user.findUniqueOrThrow({
-      where: { id: pilot.id },
-    });
-    expect(after.hdvBalanceMin).toBe(30 - 90);
+    expect(await getUserNetBalance(pilot.id)).toBe(30 - 90);
   });
 
   it("rejects a smuggled photo key owned by another pilot", async () => {

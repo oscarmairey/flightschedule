@@ -34,14 +34,20 @@ describe("bookReservation — rule #3", () => {
       userId: user.id,
       startsAtUtc,
       endsAtUtc,
+      comment: "Corsica trip",
+      estimatedFlightHours: 2.75,
     });
 
     expect(res.durationMin).toBe(180);
+    expect(res.comment).toBe("Corsica trip");
+    expect(res.estimatedFlightHours).toBe(2.75);
     const row = await prisma.reservation.findUniqueOrThrow({
       where: { id: res.id },
     });
     expect(row.status).toBe("CONFIRMED");
     expect(row.userId).toBe(user.id);
+    expect(row.comment).toBe("Corsica trip");
+    expect(Number(row.estimatedFlightHours)).toBe(2.75);
   });
 
   it("rejects a window that overlaps an existing CONFIRMED reservation (same user)", async () => {

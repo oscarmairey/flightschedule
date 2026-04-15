@@ -20,7 +20,10 @@ import {
   formatParisWeekRange,
   parseWeekParam,
 } from "@/lib/format";
-import { formatHHMM } from "@/lib/duration";
+import {
+  formatEstimatedFlightHours,
+  formatReservationDuration,
+} from "@/lib/reservationDisplay";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { SubmitButton } from "@/components/ui/SubmitButton";
@@ -167,20 +170,12 @@ export default async function CalendarPage({
                 const cancellable =
                   new Date() < cutoff && !r.autoCreatedFromFlight;
 
-                // Multi-day = spans more than 24h OR crosses a Paris-local
-                // calendar date boundary. In both cases we show "Du … au …"
-                // and count the calendar days the reservation touches
-                // rather than raw hours — "2 jours" reads better than "48h".
                 const startYmd = parisLocalDateString(r.startsAt);
                 const endYmd = parisLocalDateString(r.endsAt);
-                const isMultiDay =
-                  startYmd !== endYmd || r.durationMin > 24 * 60;
-                const nbDays =
-                  Math.round(
-                    (new Date(endYmd).getTime() -
-                      new Date(startYmd).getTime()) /
-                      (24 * 60 * 60 * 1000),
-                  ) + 1;
+                const spansSeveralDates = startYmd !== endYmd;
+                const estimatedLabel = formatEstimatedFlightHours(
+                  r.estimatedFlightHours,
+                );
                 return (
                   <li
                     key={r.id}
@@ -188,7 +183,7 @@ export default async function CalendarPage({
                   >
                     <div>
                       <p className="font-display text-base font-semibold text-text-strong">
-                        {isMultiDay
+                        {spansSeveralDates
                           ? `Du ${formatDateFR(r.startsAt)} au ${formatDateFR(r.endsAt)}`
                           : formatDateFR(r.startsAt)}
                       </p>
@@ -206,11 +201,20 @@ export default async function CalendarPage({
                         }).format(r.endsAt)}
                         <span className="mx-2 text-text-subtle">·</span>
                         <span className="font-semibold text-text">
-                          {isMultiDay
-                            ? `${nbDays} ${nbDays > 1 ? "jours" : "jour"}`
-                            : formatHHMM(r.durationMin)}
+                          {formatReservationDuration(r.durationMin)}
                         </span>
                       </p>
+                      {(estimatedLabel || r.comment) && (
+                        <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-text-subtle">
+                          {estimatedLabel && (
+                            <span>HDV estimée : {estimatedLabel}</span>
+                          )}
+                          {estimatedLabel && r.comment && (
+                            <span aria-hidden="true">·</span>
+                          )}
+                          {r.comment && <span>{r.comment}</span>}
+                        </p>
+                      )}
                     </div>
                     {cancellable ? (
                       <CancelReservationButton
@@ -283,6 +287,44 @@ export default async function CalendarPage({
                 name="endTime"
                 defaultValue={defaultEndTime}
                 ariaLabel="Heure de fin"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="estimatedFlightHours">
+                HDV estimée{" "}
+                <span className="font-normal text-text-subtle">
+                  ({COPY.common.optional})
+                </span>
+              </Label>
+              <Input
+                id="estimatedFlightHours"
+                name="estimatedFlightHours"
+                type="number"
+                min={0.01}
+                max={999.99}
+                step="0.01"
+                inputMode="decimal"
+                placeholder="3.50"
+                className="tabular"
+              />
+              <p className="text-xs text-text-subtle">
+                Valeur indicative affichée dans le calendrier.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="comment">
+                Commentaires{" "}
+                <span className="font-normal text-text-subtle">
+                  ({COPY.common.optional})
+                </span>
+              </Label>
+              <textarea
+                id="comment"
+                name="comment"
+                rows={3}
+                maxLength={500}
+                placeholder="Ex : voyage Corse, renouvellement licence"
+                className="block w-full rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand"
               />
             </div>
             <div className="sm:col-span-2">

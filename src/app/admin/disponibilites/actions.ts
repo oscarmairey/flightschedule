@@ -196,7 +196,7 @@ export async function createOpenPeriod(formData: FormData) {
 
   revalidatePath("/admin/disponibilites");
   revalidatePath("/calendar");
-  redirect("/admin/disponibilites?created=1");
+  redirect("/admin/disponibilites?open_period_created=1");
 }
 
 export async function deleteOpenPeriod(formData: FormData) {

@@ -6,7 +6,6 @@
 //   2. Forfaits HDV — purchase packages (uniform list, no featured row)
 //   3. Historique des mouvements — full transaction history (50 rows)
 
-import Link from "next/link";
 import { Plane, TrendingUp, BookOpen } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
@@ -38,7 +37,7 @@ export default async function DashboardPage({
   const thirtyDaysAgo = new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000);
 
   const [
-    user,
+    hourBalances,
     recentTx,
     ytdAgg,
     allTimeAgg,
@@ -46,14 +45,22 @@ export default async function DashboardPage({
     packages,
     bankTransfers,
   ] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { hdvBalanceMin: true, name: true, role: true },
+    prisma.userFlightHourBalance.findMany({
+      where: { userId: session.user.id },
+      include: {
+        flightHourType: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: [{ flightHourType: { name: "asc" } }],
     }),
     prisma.transaction.findMany({
       where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
       take: 50,
+      include: {
+        flightHourType: { select: { id: true, name: true } },
+      },
     }),
     prisma.flight.aggregate({
       where: { userId: session.user.id, date: { gte: startOfYear } },
@@ -66,7 +73,10 @@ export default async function DashboardPage({
     prisma.flight.count({ where: { userId: session.user.id } }),
     prisma.package.findMany({
       where: { isActive: true },
-      orderBy: { sortOrder: "asc" },
+      orderBy: [{ sortOrder: "asc" }, { flightHourType: { name: "asc" } }],
+      include: {
+        flightHourType: { select: { id: true, name: true } },
+      },
     }),
     prisma.bankTransfer.findMany({
       where: {
@@ -102,7 +112,20 @@ export default async function DashboardPage({
     })),
   ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-  const balance = user?.hdvBalanceMin ?? 0;
+  const nonZeroBalances = hourBalances.filter((b) => b.balanceMin !== 0);
+  const positiveBalance = nonZeroBalances.find((b) => b.balanceMin > 0);
+  const netBalanceMin = hourBalances.reduce(
+    (acc, b) => acc + b.balanceMin,
+    0,
+  );
+  const heroBalanceMin = positiveBalance?.balanceMin ?? netBalanceMin;
+  const activeTypeName = positiveBalance?.flightHourType.name ?? null;
+
+  // Single-active-type invariant: if the pilot has any non-zero wallet
+  // today, only packages of THAT type are buyable. Otherwise all types
+  // are open.
+  const blockingTypeId = nonZeroBalances[0]?.flightHourType.id ?? null;
+  const blockingTypeName = nonZeroBalances[0]?.flightHourType.name ?? null;
 
   const ytdMin = ytdAgg._sum.actualDurationMin ?? 0;
   const allTimeMin = allTimeAgg._sum.actualDurationMin ?? 0;
@@ -110,7 +133,9 @@ export default async function DashboardPage({
   const errorBanner =
     params.error === "invalid_package"
       ? "Forfait invalide ou indisponible."
-      : null;
+      : params.error === "mixed_type"
+        ? `Vous détenez encore des heures en « ${blockingTypeName ?? "un autre type"} ». Ramenez ce solde à zéro avant d'acheter un forfait d'un autre type.`
+        : null;
 
   return (
     <AppShell>
@@ -143,12 +168,39 @@ export default async function DashboardPage({
             />
             <div className="relative">
               <HeroBalance
-                balanceMin={balance}
-                label={COPY.dashboard.balanceLabel}
+                balanceMin={heroBalanceMin}
+                label={
+                  activeTypeName
+                    ? `${COPY.dashboard.balanceLabel} · ${activeTypeName}`
+                    : COPY.dashboard.balanceLabel
+                }
                 size="xl"
               />
+              {nonZeroBalances.length > 1 && (
+                <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+                  {nonZeroBalances
+                    .filter(
+                      (b) => b.flightHourType.id !== positiveBalance?.flightHourType.id,
+                    )
+                    .map((b) => (
+                      <li key={b.flightHourType.id} className="tabular text-text-muted">
+                        <span>{b.flightHourType.name}</span>
+                        {" : "}
+                        <span
+                          className={
+                            b.balanceMin < 0
+                              ? "font-semibold text-danger"
+                              : "font-semibold text-text"
+                          }
+                        >
+                          {formatHHMMSigned(b.balanceMin)}
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+              )}
               <p className="mt-4 max-w-sm text-sm leading-relaxed text-text-muted">
-                {balance < 0
+                {heroBalanceMin < 0
                   ? "Votre solde est négatif. Rechargez votre compte pour pouvoir réserver."
                   : "Heures de vol disponibles. Réservez un créneau ou achetez un forfait pour recharger votre compte."}
               </p>
@@ -182,31 +234,19 @@ export default async function DashboardPage({
                 </p>
               </div>
             </Card>
-            <Link
-              href="/flights"
-              className="group block rounded-lg transition-colors"
-              aria-label="Voir l'historique des vols"
-            >
-              <Card className="flex items-center justify-between gap-4 transition-colors group-hover:border-brand-soft-border">
-                <div>
-                  <div className="flex items-center gap-2 text-text-subtle">
-                    <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span className="text-xs font-medium uppercase tracking-[0.12em]">
-                      Vols
-                    </span>
-                  </div>
-                  <p className="font-display tabular mt-1 text-3xl font-semibold tracking-tight text-text-strong">
-                    {totalFlights}
-                  </p>
+            <Card className="flex items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-text-subtle">
+                  <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="text-xs font-medium uppercase tracking-[0.12em]">
+                    Vols
+                  </span>
                 </div>
-                <span
-                  aria-hidden="true"
-                  className="text-text-subtle transition-colors group-hover:text-brand"
-                >
-                  →
-                </span>
-              </Card>
-            </Link>
+                <p className="font-display tabular mt-1 text-3xl font-semibold tracking-tight text-text-strong">
+                  {totalFlights}
+                </p>
+              </div>
+            </Card>
           </div>
         </section>
 
@@ -230,9 +270,19 @@ export default async function DashboardPage({
             </Card>
           ) : (
             <ul className="divide-y divide-border-subtle border-y border-border-subtle">
-              {packages.map((pkg) => (
-                <PackageRow key={pkg.id} pkg={pkg} />
-              ))}
+              {packages.map((pkg) => {
+                const blocked =
+                  blockingTypeId !== null &&
+                  pkg.flightHourTypeId !== blockingTypeId;
+                return (
+                  <PackageRow
+                    key={pkg.id}
+                    pkg={pkg}
+                    blocked={blocked}
+                    blockingTypeName={blocked ? blockingTypeName : null}
+                  />
+                );
+              })}
             </ul>
           )}
         </section>
@@ -267,7 +317,9 @@ export default async function DashboardPage({
                         <p className="truncate text-sm font-medium text-text">
                           {COPY.txTypes[t.type]}
                         </p>
-                        <p className="mt-0.5 text-xs tabular text-text-subtle">
+                        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs tabular text-text-subtle">
+                          <span>{t.flightHourType.name}</span>
+                          <span aria-hidden="true">·</span>
                           {formatDateTimeFR(t.createdAt)}
                         </p>
                       </div>
@@ -308,9 +360,11 @@ export default async function DashboardPage({
                           {isPending ? "En attente" : "Refusé"}
                         </Badge>
                       </div>
-                      <p className="mt-0.5 text-xs tabular text-text-subtle">
+                      <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs tabular text-text-subtle">
+                        <span>{bt.flightHourTypeName}</span>
+                        <span aria-hidden="true">·</span>
                         <span className="font-mono">{bt.reference}</span>
-                        <span className="mx-1.5">·</span>
+                        <span aria-hidden="true">·</span>
                         {formatDateTimeFR(bt.createdAt)}
                       </p>
                       {bt.status === "REJECTED" && bt.rejectionNote && (
@@ -345,9 +399,19 @@ type DashboardPackage = {
   description: string | null;
   priceCentsHT: number;
   hdvMinutes: number;
+  flightHourTypeId: string;
+  flightHourType: { id: string; name: string };
 };
 
-function PackageRow({ pkg }: { pkg: DashboardPackage }) {
+function PackageRow({
+  pkg,
+  blocked,
+  blockingTypeName,
+}: {
+  pkg: DashboardPackage;
+  blocked: boolean;
+  blockingTypeName: string | null;
+}) {
   // Round to whole euros for the dashboard display per operator preference.
   const priceFmt = (pkg.priceCentsHT / 100).toLocaleString("fr-FR", {
     style: "currency",
@@ -357,11 +421,23 @@ function PackageRow({ pkg }: { pkg: DashboardPackage }) {
   });
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-4 py-5">
+    <li
+      className={`flex flex-wrap items-center justify-between gap-4 py-5 ${
+        blocked ? "opacity-60" : ""
+      }`}
+    >
       <div className="min-w-0 flex-1">
-        <h3 className="font-display text-xl font-semibold tracking-tight text-text-strong">
-          {pkg.name}
-        </h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="font-display text-xl font-semibold tracking-tight text-text-strong">
+            {pkg.name}
+          </h3>
+          <span
+            className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-surface-sunken px-2 py-0.5 text-xs font-medium text-text-muted"
+            aria-label={`Type : ${pkg.flightHourType.name}`}
+          >
+            {pkg.flightHourType.name}
+          </span>
+        </div>
         <p className="mt-0.5 text-sm text-text-muted">
           <span className="font-display tabular font-semibold text-text">
             {formatHHMM(pkg.hdvMinutes)}
@@ -373,20 +449,35 @@ function PackageRow({ pkg }: { pkg: DashboardPackage }) {
             </>
           )}
         </p>
+        {blocked && blockingTypeName && (
+          <p className="mt-1 text-xs text-warning">
+            Bloqué : ramenez votre solde « {blockingTypeName} » à zéro pour
+            pouvoir acheter ce forfait.
+          </p>
+        )}
       </div>
       <div className="flex items-center gap-5">
         <p className="font-display tabular text-2xl font-semibold tracking-tight text-text-strong">
           {priceFmt}
           <span className="ml-1 text-xs font-normal text-text-subtle">HT</span>
         </p>
-        <PayPackageButton
-          pkg={{
-            id: pkg.id,
-            name: pkg.name,
-            hdvMinutes: pkg.hdvMinutes,
-            priceCentsHT: pkg.priceCentsHT,
-          }}
-        />
+        {blocked ? (
+          <span
+            aria-disabled="true"
+            className="cursor-not-allowed rounded-md border border-border-subtle bg-surface-sunken px-3 py-2 text-sm font-medium text-text-subtle"
+          >
+            Indisponible
+          </span>
+        ) : (
+          <PayPackageButton
+            pkg={{
+              id: pkg.id,
+              name: pkg.name,
+              hdvMinutes: pkg.hdvMinutes,
+              priceCentsHT: pkg.priceCentsHT,
+            }}
+          />
+        )}
       </div>
     </li>
   );

@@ -53,11 +53,39 @@ export default async function PilotDetailPage({
       transactions: {
         orderBy: { createdAt: "desc" },
         take: 20,
+        include: {
+          flightHourType: { select: { id: true, name: true } },
+        },
+      },
+      hourBalances: {
+        include: {
+          flightHourType: {
+            select: {
+              id: true,
+              name: true,
+              isActive: true,
+            },
+          },
+        },
+        orderBy: [{ flightHourType: { name: "asc" } }],
       },
     },
   });
 
   if (!pilot) notFound();
+
+  const activeTypes = await prisma.flightHourType.findMany({
+    where: { isActive: true },
+    orderBy: [{ name: "asc" }],
+    select: { id: true, name: true },
+  });
+
+  const nonZeroBalances = pilot.hourBalances.filter((b) => b.balanceMin !== 0);
+  const positiveBalance = nonZeroBalances.find((b) => b.balanceMin > 0);
+  const netBalanceMin = pilot.hourBalances.reduce(
+    (acc, b) => acc + b.balanceMin,
+    0,
+  );
 
   // Latest 10 bank transfers for this pilot — any status, newest first.
   // VALIDATED ones also appear as Transaction rows below, but listing
@@ -118,6 +146,11 @@ export default async function PilotDetailPage({
       tone: "error",
       msg: "Cette adresse email est déjà utilisée par un autre compte.",
     },
+    "error:mixed_type": {
+      tone: "error",
+      msg:
+        "Un crédit ne peut pas s'appliquer à un autre type tant que le pilote détient encore des heures d'un type existant. Débitez d'abord l'autre type à zéro.",
+    },
     "error:invalid": { tone: "error", msg: COPY.errors.invalidInput },
   });
 
@@ -148,12 +181,40 @@ export default async function PilotDetailPage({
                 {!pilot.isActive && <Badge variant="danger">Inactif</Badge>}
               </div>
             </div>
-            <HeroBalance
-              balanceMin={pilot.hdvBalanceMin}
-              label={COPY.dashboard.balanceLabel}
-              size="md"
-              align="right"
-            />
+            <div className="flex flex-col items-end gap-2">
+              <HeroBalance
+                balanceMin={
+                  positiveBalance?.balanceMin ?? netBalanceMin
+                }
+                label={
+                  positiveBalance
+                    ? `Solde HDV · ${positiveBalance.flightHourType.name}`
+                    : nonZeroBalances.length === 0
+                      ? COPY.dashboard.balanceLabel
+                      : "Solde HDV (net)"
+                }
+                size="md"
+                align="right"
+              />
+              {nonZeroBalances.length > 1 && (
+                <ul className="flex flex-col items-end gap-0.5 text-xs text-text-subtle">
+                  {nonZeroBalances
+                    .filter((b) => b.flightHourType.id !== positiveBalance?.flightHourType.id)
+                    .map((b) => (
+                      <li key={b.flightHourType.id} className="tabular">
+                        {b.flightHourType.name} :{" "}
+                        <span
+                          className={
+                            b.balanceMin < 0 ? "text-danger" : "text-text"
+                          }
+                        >
+                          {formatHHMMSigned(b.balanceMin)}
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
           </div>
         </header>
 
@@ -175,6 +236,50 @@ export default async function PilotDetailPage({
           </CardHeader>
           <form action={adjustHdv} className="space-y-4">
             <input type="hidden" name="pilotId" value={pilot.id} />
+            <div className="space-y-1.5">
+              <Label htmlFor="flightHourTypeId" required>
+                Type d&apos;heures
+              </Label>
+              <Select
+                id="flightHourTypeId"
+                name="flightHourTypeId"
+                required
+                defaultValue={
+                  positiveBalance?.flightHourType.id ??
+                  nonZeroBalances[0]?.flightHourType.id ??
+                  activeTypes[0]?.id ??
+                  ""
+                }
+              >
+                {activeTypes.length === 0 && (
+                  <option value="" disabled>
+                    Aucun type actif
+                  </option>
+                )}
+                {activeTypes.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+                {/* Include any archived type the pilot still holds hours in. */}
+                {pilot.hourBalances
+                  .filter(
+                    (b) =>
+                      !b.flightHourType.isActive &&
+                      !activeTypes.find(
+                        (t) => t.id === b.flightHourType.id,
+                      ),
+                  )
+                  .map((b) => (
+                    <option
+                      key={b.flightHourType.id}
+                      value={b.flightHourType.id}
+                    >
+                      {b.flightHourType.name} (archivé)
+                    </option>
+                  ))}
+              </Select>
+            </div>
             <div className="grid gap-4 sm:grid-cols-[1fr_2fr]">
               <div className="space-y-1.5">
                 <Label htmlFor="sign" required>
@@ -383,6 +488,10 @@ export default async function PilotDetailPage({
                         <span className="tabular text-text-muted">
                           {formatHHMM(bt.hdvMinutes)}
                         </span>
+                        <span className="mx-2 text-text-subtle">·</span>
+                        <span className="text-text-muted">
+                          {bt.flightHourTypeName}
+                        </span>
                       </p>
                       <p className="mt-0.5 text-xs tabular text-text-subtle">
                         <span className="font-mono">{bt.reference}</span>
@@ -483,7 +592,9 @@ export default async function PilotDetailPage({
                       <p className="truncate font-medium text-text">
                         {COPY.txTypes[t.type]}
                       </p>
-                      <p className="mt-0.5 text-xs tabular text-text-subtle">
+                      <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs tabular text-text-subtle">
+                        <span>{t.flightHourType.name}</span>
+                        <span aria-hidden="true">·</span>
                         {formatDateTimeFR(t.createdAt)}
                       </p>
                     </div>

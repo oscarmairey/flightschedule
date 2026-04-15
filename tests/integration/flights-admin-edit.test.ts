@@ -3,7 +3,11 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getTestPrisma } from "../setup/db";
-import { makeUser } from "../setup/factories";
+import {
+  makeUser,
+  ensureStandardFlightHourType,
+  getUserNetBalance,
+} from "../setup/factories";
 import { applyHdvMutation } from "@/lib/hdv";
 
 let currentAdminId: string = "";
@@ -51,9 +55,11 @@ async function seedOneHourFlight(): Promise<{
   pilotId: string;
   adminId: string;
   flightId: string;
+  typeId: string;
   initialBalance: number;
 }> {
   const prisma = getTestPrisma();
+  const typeId = await ensureStandardFlightHourType();
   const admin = await makeUser({ role: "ADMIN" });
   const pilot = await makeUser({ hdvBalanceMin: 0 });
 
@@ -61,6 +67,7 @@ async function seedOneHourFlight(): Promise<{
   await prisma.$transaction(async (tx) => {
     await applyHdvMutation(tx, {
       userId: pilot.id,
+      flightHourTypeId: typeId,
       type: "PACKAGE_PURCHASE",
       amountMin: 600,
       performedById: admin.id,
@@ -90,6 +97,7 @@ async function seedOneHourFlight(): Promise<{
     flightId = f.id;
     await applyHdvMutation(tx, {
       userId: pilot.id,
+      flightHourTypeId: typeId,
       type: "FLIGHT_DEBIT",
       amountMin: -60,
       flightId: f.id,
@@ -98,7 +106,13 @@ async function seedOneHourFlight(): Promise<{
     });
   });
 
-  return { pilotId: pilot.id, adminId: admin.id, flightId, initialBalance: 540 };
+  return {
+    pilotId: pilot.id,
+    adminId: admin.id,
+    flightId,
+    typeId,
+    initialBalance: 540,
+  };
 }
 
 function buildEditFormData(params: {
@@ -130,6 +144,7 @@ describe("updateFlightAsAdmin — rule #9", () => {
 
   it("shortening 1h30 → 1h00 refunds 30 min via ADMIN_ADJUSTMENT", async () => {
     const prisma = getTestPrisma();
+    const typeId = await ensureStandardFlightHourType();
     const admin = await makeUser({ role: "ADMIN" });
     const pilot = await makeUser({ hdvBalanceMin: 0 });
     currentAdminId = admin.id;
@@ -138,6 +153,7 @@ describe("updateFlightAsAdmin — rule #9", () => {
     await prisma.$transaction(async (tx) => {
       await applyHdvMutation(tx, {
         userId: pilot.id,
+        flightHourTypeId: typeId,
         type: "PACKAGE_PURCHASE",
         amountMin: 600,
         performedById: admin.id,
@@ -163,6 +179,7 @@ describe("updateFlightAsAdmin — rule #9", () => {
       flightId = f.id;
       await applyHdvMutation(tx, {
         userId: pilot.id,
+        flightHourTypeId: typeId,
         type: "FLIGHT_DEBIT",
         amountMin: -90,
         flightId: f.id,
@@ -218,15 +235,15 @@ describe("updateFlightAsAdmin — rule #9", () => {
     const flight = await prisma.flight.findUniqueOrThrow({ where: { id: flightId } });
     expect(flight.actualDurationMin).toBe(60);
 
-    // Invariant holds.
-    const after = await prisma.user.findUniqueOrThrow({ where: { id: pilot.id } });
+    // Invariant holds (type-scoped).
+    const netAfter = await getUserNetBalance(pilot.id);
     const ledger = await prisma.transaction.findMany({
       where: { userId: pilot.id },
       select: { amountMin: true },
     });
     const sum = ledger.reduce((s, r) => s + r.amountMin, 0);
-    expect(after.hdvBalanceMin).toBe(sum);
-    expect(after.hdvBalanceMin).toBe(balanceBefore + 30);
+    expect(netAfter).toBe(sum);
+    expect(netAfter).toBe(balanceBefore + 30);
   });
 
   it("lengthening 1h00 → 1h30 debits 30 min further", async () => {
@@ -255,10 +272,9 @@ describe("updateFlightAsAdmin — rule #9", () => {
     });
     expect(adj.amountMin).toBe(-30);
 
-    const after = await prisma.user.findUniqueOrThrow({
-      where: { id: seeded.pilotId },
-    });
-    expect(after.hdvBalanceMin).toBe(seeded.initialBalance - 30);
+    expect(await getUserNetBalance(seeded.pilotId)).toBe(
+      seeded.initialBalance - 30,
+    );
   });
 
   it("zero-duration change does NOT write an ADMIN_ADJUSTMENT", async () => {
@@ -289,10 +305,9 @@ describe("updateFlightAsAdmin — rule #9", () => {
     expect(adjCount).toBe(0);
 
     // Balance unchanged, flight row updated.
-    const after = await prisma.user.findUniqueOrThrow({
-      where: { id: seeded.pilotId },
-    });
-    expect(after.hdvBalanceMin).toBe(seeded.initialBalance);
+    expect(await getUserNetBalance(seeded.pilotId)).toBe(
+      seeded.initialBalance,
+    );
     const flight = await prisma.flight.findUniqueOrThrow({
       where: { id: seeded.flightId },
     });

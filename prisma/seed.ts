@@ -9,6 +9,9 @@
 //   1. Creates (or updates) the bootstrap admin from .env credentials
 //   2. The admin starts with mustResetPw = false because the bootstrap
 //      password was set by the operator, not auto-generated.
+//   3. Upserts a "Standard" FlightHourType so a fresh DB has a valid
+//      target for packages and adjustments. Matches the "Standard" row
+//      that the per-type-wallets migration backfills on a live DB.
 //
 // What it does NOT do:
 //   - Seed pilots — those are created via the admin UI
@@ -59,11 +62,28 @@ async function seed() {
       role: "ADMIN",
       isActive: true,
       mustResetPw: false,
-      hdvBalanceMin: 0,
     },
   });
 
   console.log(`Bootstrap admin upserted: ${admin.email} (id=${admin.id})`);
+
+  // Same UUID as the per-type-wallets migration uses for its backfill,
+  // so a fresh seed and a migrated live DB both end up with the same
+  // "Standard" row id. Not semantically required, but keeps cross-env
+  // exports/imports clean.
+  const standardTypeId = "00000000-0000-4000-8000-000000000001";
+  const standard = await prisma.flightHourType.upsert({
+    where: { id: standardTypeId },
+    update: {},
+    create: {
+      id: standardTypeId,
+      name: "Standard",
+      description:
+        "Type par défaut. Renommez-le ou créez d'autres types depuis /admin/tarifs.",
+      isActive: true,
+    },
+  });
+  console.log(`FlightHourType upserted: ${standard.name} (id=${standard.id})`);
 }
 
 seed()

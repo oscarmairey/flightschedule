@@ -83,6 +83,8 @@ export type BookReservationInput = {
   userId: string;
   startsAtUtc: Date;
   endsAtUtc: Date;
+  comment?: string;
+  estimatedFlightHours?: number;
 };
 
 export type BookReservationResult = {
@@ -90,6 +92,8 @@ export type BookReservationResult = {
   startsAt: Date;
   endsAt: Date;
   durationMin: number;
+  comment: string | null;
+  estimatedFlightHours: number | null;
 };
 
 /**
@@ -150,9 +154,18 @@ export async function bookReservation(
               startsAt: input.startsAtUtc,
               endsAt: input.endsAtUtc,
               durationMin,
+              comment: input.comment ?? null,
+              estimatedFlightHours: input.estimatedFlightHours ?? null,
               status: "CONFIRMED",
             },
-            select: { id: true, startsAt: true, endsAt: true, durationMin: true },
+            select: {
+              id: true,
+              startsAt: true,
+              endsAt: true,
+              durationMin: true,
+              comment: true,
+              estimatedFlightHours: true,
+            },
           });
 
           return {
@@ -160,6 +173,11 @@ export async function bookReservation(
             startsAt: created.startsAt,
             endsAt: created.endsAt,
             durationMin: created.durationMin,
+            comment: created.comment,
+            estimatedFlightHours:
+              created.estimatedFlightHours === null
+                ? null
+                : Number(created.estimatedFlightHours),
           };
         },
         { isolationLevel: "Serializable", maxWait: 5000, timeout: 10000 },

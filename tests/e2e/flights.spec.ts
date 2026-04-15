@@ -26,7 +26,7 @@ test.describe("Flights — full submit journey", () => {
     await page.goto("/dashboard");
     await expect(page.locator("body")).toContainText("10h00");
 
-    await page.goto("/flights/new");
+    await page.goto("/flights");
     await page.fill('input[name="flightDate"]', yesterdayYmd());
     await page.fill('input[name="depAirport"]', "LFPN");
     await page.fill('input[name="arrAirport"]', "LFPG");
@@ -34,7 +34,7 @@ test.describe("Flights — full submit journey", () => {
     await page.fill('input[name="engineStop"]', "15:30");
     await page.fill('input[name="landings"]', "2");
     await Promise.all([
-      page.waitForURL(/\/flights\/new\?added=1/, { timeout: 15_000 }),
+      page.waitForURL(/\/flights\?added=1/, { timeout: 15_000 }),
       page.getByRole("button", { name: /Enregistrer le vol/ }).click(),
     ]);
 
@@ -55,13 +55,19 @@ test.describe("Flights — full submit journey", () => {
   // Playwright URL bar, so we stop asserting on URL here and rely on
   // the integration layer for the negative-path DB state.
 
-  test("/flights/new renders the submission form", async ({ page }) => {
+  test("/flights renders the submission form", async ({ page }) => {
     await loginAs(page, "pilot1");
-    await page.goto("/flights/new");
-    await expect(page).toHaveURL(/\/flights\/new/);
+    await page.goto("/flights");
+    await expect(page).toHaveURL(/\/flights/);
     await expect(page.locator('input[name="depAirport"]')).toBeVisible();
     await expect(page.locator('input[name="arrAirport"]')).toBeVisible();
     await expect(page.locator('input[name="engineStart"]')).toBeVisible();
     await expect(page.locator('input[name="engineStop"]')).toBeVisible();
+  });
+
+  test("/flights/new redirects to /flights", async ({ page }) => {
+    await loginAs(page, "pilot1");
+    await page.goto("/flights/new");
+    await expect(page).toHaveURL(/\/flights$/);
   });
 });

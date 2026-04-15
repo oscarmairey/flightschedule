@@ -27,11 +27,23 @@ async function main() {
 
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE "BankTransfer", "Transaction", "Flight", "Reservation",
-      "AvailabilityBlock", "OpenPeriod", "Package", "BankAccount", "User"
+      "AvailabilityBlock", "OpenPeriod", "Package", "BankAccount",
+      "UserFlightHourBalance", "FlightHourType", "User"
     RESTART IDENTITY CASCADE
   `);
 
   const passwordHash = await hash("Pilot-Test-1234", 4);
+
+  // V2.4 — seed the Standard FlightHourType first; all fixtures below
+  // hang off it.
+  const standardTypeId = "00000000-0000-4000-8000-000000000001";
+  await prisma.flightHourType.create({
+    data: {
+      id: standardTypeId,
+      name: "Standard",
+      isActive: true,
+    },
+  });
 
   await prisma.user.create({
     data: {
@@ -42,20 +54,28 @@ async function main() {
       role: "ADMIN",
       isActive: true,
       mustResetPw: false,
-      hdvBalanceMin: 0,
     },
   });
 
+  const pilot1Id = "00000000-0000-4000-a000-000000000002";
   await prisma.user.create({
     data: {
-      id: "00000000-0000-4000-a000-000000000002",
+      id: pilot1Id,
       email: "pilot1@test.local",
       name: "Pilot One",
       passwordHash,
       role: "PILOT",
       isActive: true,
       mustResetPw: false,
-      hdvBalanceMin: 600,
+    },
+  });
+
+  // Pilot 1 seeded with 600 min (10h) on the Standard wallet.
+  await prisma.userFlightHourBalance.create({
+    data: {
+      userId: pilot1Id,
+      flightHourTypeId: standardTypeId,
+      balanceMin: 600,
     },
   });
 
@@ -68,7 +88,6 @@ async function main() {
       role: "PILOT",
       isActive: true,
       mustResetPw: true,
-      hdvBalanceMin: 0,
     },
   });
 
@@ -87,6 +106,7 @@ async function main() {
         sortOrder: 0,
         stripeProductId: "prod_test_decouverte",
         stripePriceId: "price_test_decouverte",
+        flightHourTypeId: standardTypeId,
       },
       {
         name: "Pack Initiation 5h",
@@ -97,6 +117,7 @@ async function main() {
         sortOrder: 1,
         stripeProductId: "prod_test_initiation",
         stripePriceId: "price_test_initiation",
+        flightHourTypeId: standardTypeId,
       },
       {
         name: "Pack Avancé 10h",
@@ -107,18 +128,15 @@ async function main() {
         sortOrder: 2,
         stripeProductId: "prod_test_avance",
         stripePriceId: "price_test_avance",
+        flightHourTypeId: standardTypeId,
       },
     ],
   });
 
   // Seed one past flight for pilot1 so /admin/flights/[id]/edit has a
-  // target, paired with its FLIGHT_DEBIT ledger row so the invariant
-  // (User.hdvBalanceMin == Σ transactions.amountMin) holds from t0.
-  // pilot1 seeded with hdvBalanceMin=600 — we debit 90 min here and
-  // leave the denormalised balance at 600 by crediting a
-  // PACKAGE_PURCHASE of 90 to net it out. This keeps rule #2 intact
-  // for factory users.
-  const pilot1Id = "00000000-0000-4000-a000-000000000002";
+  // target, paired with its FLIGHT_DEBIT ledger row so the per-type
+  // invariant (UserFlightHourBalance.balanceMin == Σ tx.amountMin) holds
+  // from t0. Net-neutral: credit 90, debit 90 — balance stays at 600.
   const flightDate = new Date();
   flightDate.setUTCDate(flightDate.getUTCDate() - 2);
   flightDate.setUTCHours(0, 0, 0, 0);
@@ -136,36 +154,45 @@ async function main() {
       photos: [],
     },
   });
-  // Balance-neutral seed: credit 90 min (balance 600→690), then debit
-  // 90 min for the flight (690→600). User.hdvBalanceMin stays at 600
-  // AND both Transaction rows carry the correct balanceAfterMin snapshots.
   await prisma.$transaction(async (tx) => {
-    const credited = await tx.user.update({
-      where: { id: pilot1Id },
-      data: { hdvBalanceMin: 690 },
-      select: { hdvBalanceMin: true },
+    // Credit 90 → balance 690.
+    await tx.userFlightHourBalance.update({
+      where: {
+        userId_flightHourTypeId: {
+          userId: pilot1Id,
+          flightHourTypeId: standardTypeId,
+        },
+      },
+      data: { balanceMin: 690 },
     });
     await tx.transaction.create({
       data: {
         userId: pilot1Id,
+        flightHourTypeId: standardTypeId,
         type: "PACKAGE_PURCHASE",
         amountMin: 90,
-        balanceAfterMin: credited.hdvBalanceMin,
+        balanceAfterMin: 690,
         reference: "seed-credit",
         performedById: pilot1Id,
       },
     });
-    const debited = await tx.user.update({
-      where: { id: pilot1Id },
-      data: { hdvBalanceMin: 600 },
-      select: { hdvBalanceMin: true },
+    // Debit 90 for the seeded flight → balance 600.
+    await tx.userFlightHourBalance.update({
+      where: {
+        userId_flightHourTypeId: {
+          userId: pilot1Id,
+          flightHourTypeId: standardTypeId,
+        },
+      },
+      data: { balanceMin: 600 },
     });
     await tx.transaction.create({
       data: {
         userId: pilot1Id,
+        flightHourTypeId: standardTypeId,
         type: "FLIGHT_DEBIT",
         amountMin: -90,
-        balanceAfterMin: debited.hdvBalanceMin,
+        balanceAfterMin: 600,
         flightId: seededFlight.id,
         performedById: pilot1Id,
       },
@@ -185,6 +212,8 @@ async function main() {
       priceCentsTTC: 78000,
       reference: "FS-TEST01",
       status: "PENDING",
+      flightHourTypeId: standardTypeId,
+      flightHourTypeName: "Standard",
     },
   });
 

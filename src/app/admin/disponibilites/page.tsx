@@ -29,7 +29,7 @@ import {
   formatParisWeekRange,
   parseWeekParam,
 } from "@/lib/format";
-import { formatHHMM } from "@/lib/duration";
+import { formatReservationDuration } from "@/lib/reservationDisplay";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -65,6 +65,7 @@ export default async function AdminDisponibilitesPage({
     error?: string;
     cancelled?: string;
     created?: string;
+    open_period_created?: string;
     deleted?: string;
     count?: string;
     date?: string;
@@ -76,14 +77,11 @@ export default async function AdminDisponibilitesPage({
   const now = new Date();
   const weekStart = parseWeekParam(sp.week) ?? startOfParisWeek(now);
 
-  const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-
   const [reservations, recurring, overrides, openPeriods] = await Promise.all([
     prisma.reservation.findMany({
       where: {
         status: "CONFIRMED",
-        startsAt: { lt: weekEnd },
-        endsAt: { gt: weekStart },
+        startsAt: { gte: now },
       },
       include: { user: { select: { name: true, email: true } } },
       orderBy: { startsAt: "asc" },
@@ -104,6 +102,10 @@ export default async function AdminDisponibilitesPage({
   const banner = resolveBanner(sp, {
     cancelled: { tone: "success", msg: "Réservation annulée." },
     created: { tone: "success", msg: "Indisponibilité créée." },
+    open_period_created: {
+      tone: "success",
+      msg: "Créneau d'ouverture créé.",
+    },
     deleted: { tone: "success", msg: "Indisponibilité supprimée." },
     "error:locked": {
       tone: "error",
@@ -197,12 +199,12 @@ export default async function AdminDisponibilitesPage({
 
           <div className="mt-6">
             <h3 className="font-display mb-3 text-base font-semibold text-text-strong">
-              Réservations de la semaine
+              Réservations à venir
             </h3>
             {reservations.length === 0 ? (
               <Card tone="sunken">
                 <p className="text-sm text-text-muted">
-                  Aucune réservation cette semaine.
+                  Aucune réservation à venir.
                 </p>
               </Card>
             ) : (
@@ -232,7 +234,7 @@ export default async function AdminDisponibilitesPage({
                         }).format(r.endsAt)}
                         <span className="mx-2 text-text-subtle">·</span>
                         <span className="font-semibold text-text">
-                          {formatHHMM(r.durationMin)}
+                          {formatReservationDuration(r.durationMin)}
                         </span>
                         {r.autoCreatedFromFlight && (
                           <>

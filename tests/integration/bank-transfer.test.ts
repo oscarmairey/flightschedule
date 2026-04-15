@@ -4,7 +4,12 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getTestPrisma } from "../setup/db";
-import { makeUser, makePackage, makeBankTransfer } from "../setup/factories";
+import {
+  makeUser,
+  makePackage,
+  makeBankTransfer,
+  getUserNetBalance,
+} from "../setup/factories";
 
 let currentAdminId: string = "";
 let currentPilotId: string = "";
@@ -93,10 +98,7 @@ describe("Bank transfer flow", () => {
     expect(tx.priceCents).toBe(90000);
     expect(tx.userId).toBe(pilot.id);
 
-    const pilotAfter = await prisma.user.findUniqueOrThrow({
-      where: { id: pilot.id },
-    });
-    expect(pilotAfter.hdvBalanceMin).toBe(300);
+    expect(await getUserNetBalance(pilot.id)).toBe(300);
   });
 
   it("admin reject: PENDING → REJECTED with no Transaction created", async () => {
@@ -157,9 +159,6 @@ describe("Bank transfer flow", () => {
 
     const txs = await prisma.transaction.count({ where: { userId: pilot.id } });
     expect(txs).toBe(1);
-    const pilotAfter = await prisma.user.findUniqueOrThrow({
-      where: { id: pilot.id },
-    });
-    expect(pilotAfter.hdvBalanceMin).toBe(180);
+    expect(await getUserNetBalance(pilot.id)).toBe(180);
   });
 });

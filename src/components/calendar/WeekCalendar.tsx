@@ -37,12 +37,19 @@ import {
   formatDateFR,
   DAY_LABELS_FR,
 } from "@/lib/format";
+import {
+  formatEstimatedFlightHours,
+  formatReservationDuration,
+} from "@/lib/reservationDisplay";
 
 type Reservation = {
   id: string;
   userId: string;
   startsAt: Date;
   endsAt: Date;
+  durationMin: number;
+  comment: string | null;
+  estimatedFlightHours: { toString(): string } | null;
   user: { name: string };
 };
 
@@ -325,12 +332,26 @@ export async function WeekCalendar({
                     const be = segment.dayEndMin;
                     const isFirstSlot = bs >= slotMin && bs < slotEndMin;
                     const isLastSlot = be > slotMin && be <= slotEndMin;
+                    const estimatedLabel = formatEstimatedFlightHours(
+                      segment.r.estimatedFlightHours,
+                    );
+                    const detailParts = [
+                      segment.r.user.name,
+                      `${segment.overallStartLabel}–${segment.overallEndLabel}`,
+                      formatReservationDuration(segment.r.durationMin),
+                      estimatedLabel
+                        ? `HDV estimée : ${estimatedLabel}`
+                        : null,
+                      segment.r.comment
+                        ? `Commentaire : ${segment.r.comment}`
+                        : null,
+                    ].filter(Boolean);
                     return (
                       <div
                         key={dayIdx}
                         role="img"
-                        aria-label={`Réservé par ${segment.r.user.name}, ${segment.overallStartLabel} à ${segment.overallEndLabel}`}
-                        title={`${segment.r.user.name} · ${segment.overallStartLabel}–${segment.overallEndLabel}`}
+                        aria-label={detailParts.join(", ")}
+                        title={detailParts.join(" · ")}
                         className={`relative min-h-32 border-l border-border-subtle ${
                           isOwn
                             ? "bg-brand text-text-on-brand"
@@ -347,6 +368,15 @@ export async function WeekCalendar({
                             <p className="truncate text-[0.7rem] tabular leading-tight opacity-80">
                               {segment.overallStartLabel}–{segment.overallEndLabel}
                             </p>
+                            <p className="truncate text-[0.7rem] leading-tight opacity-80">
+                              {formatReservationDuration(segment.r.durationMin)}
+                              {estimatedLabel ? ` · ${estimatedLabel}` : ""}
+                            </p>
+                            {segment.r.comment && (
+                              <p className="truncate text-[0.7rem] italic leading-tight opacity-80">
+                                {segment.r.comment}
+                              </p>
+                            )}
                           </div>
                         )}
                       </div>

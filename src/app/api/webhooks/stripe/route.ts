@@ -94,6 +94,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   const userId = session.client_reference_id ?? session.metadata?.flyUserId;
   const minutesRaw = session.metadata?.flyHdvMin;
+  const packageId = session.metadata?.flyPackageId;
 
   if (!userId || !minutesRaw) {
     console.error(
@@ -105,6 +106,20 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const minutes = Number(minutesRaw);
   if (!Number.isInteger(minutes) || minutes <= 0) {
     console.error(`[stripe-webhook] Invalid flyHdvMin on ${session.id}: ${minutesRaw}`);
+    return;
+  }
+
+  // V2.4 — metadata may carry flyFlightHourTypeId directly (preferred) or
+  // we fall back to looking up the Package for legacy sessions that
+  // predate per-type wallets.
+  const flightHourTypeId = await resolveFlightHourTypeId(
+    session.metadata?.flyFlightHourTypeId,
+    packageId,
+  );
+  if (!flightHourTypeId) {
+    console.error(
+      `[stripe-webhook] Cannot resolve flightHourTypeId on ${session.id}`,
+    );
     return;
   }
 
@@ -152,6 +167,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
       await applyHdvMutation(tx, {
         userId,
+        flightHourTypeId,
         type: "PACKAGE_PURCHASE",
         amountMin: minutes,
         reference: session.id,
@@ -191,6 +207,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
   const userId = pi.metadata?.flyUserId;
   const minutesRaw = pi.metadata?.flyHdvMin;
+  const packageId = pi.metadata?.flyPackageId;
 
   if (!userId || !minutesRaw) {
     // Not one of ours — could be a PI created outside the app (e.g.
@@ -205,6 +222,17 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
   if (!Number.isInteger(minutes) || minutes <= 0) {
     console.error(
       `[stripe-webhook] Invalid flyHdvMin on ${pi.id}: ${minutesRaw}`,
+    );
+    return;
+  }
+
+  const flightHourTypeId = await resolveFlightHourTypeId(
+    pi.metadata?.flyFlightHourTypeId,
+    packageId,
+  );
+  if (!flightHourTypeId) {
+    console.error(
+      `[stripe-webhook] Cannot resolve flightHourTypeId on pi ${pi.id}`,
     );
     return;
   }
@@ -237,6 +265,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
 
       await applyHdvMutation(tx, {
         userId,
+        flightHourTypeId,
         type: "PACKAGE_PURCHASE",
         amountMin: minutes,
         reference: pi.id,
@@ -254,4 +283,24 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
       `[stripe-webhook] Credited ${minutes} min to user ${userId} for payment_intent ${pi.id}`,
     );
   }
+}
+
+/**
+ * V2.4 — resolve the FlightHourType id for an incoming Stripe event.
+ * Prefers the explicit `flyFlightHourTypeId` metadata key (set by
+ * post-V2.4 checkout/PI creation). Falls back to the Package row for
+ * legacy sessions that predate the metadata addition. Returns null if
+ * neither path yields a valid id — caller logs and returns.
+ */
+async function resolveFlightHourTypeId(
+  typeIdFromMetadata: string | undefined,
+  packageId: string | undefined,
+): Promise<string | null> {
+  if (typeIdFromMetadata) return typeIdFromMetadata;
+  if (!packageId) return null;
+  const pkg = await prisma.package.findUnique({
+    where: { id: packageId },
+    select: { flightHourTypeId: true },
+  });
+  return pkg?.flightHourTypeId ?? null;
 }

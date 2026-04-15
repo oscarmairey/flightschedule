@@ -1,13 +1,19 @@
 // FlightSchedule — Prisma schema
 // All durations stored as Int (minutes). Display as HH:MM only.
 // Transaction table is the source of truth for HDV.
-// User.hdvBalanceMin is denormalized for read performance.
+// UserFlightHourBalance is denormalized per-type for read performance.
 // Every HDV mutation MUST insert a Transaction in the same DB transaction.
 //
 // V2 inversion: HDV is debited at FLIGHT submission (FLIGHT_DEBIT), not at
 // reservation booking. Reservations are scheduling blocks with no HDV impact.
 // Bloc OFF / bloc ON engine times on the Flight model are required and drive
 // the actual flown duration. See CLAUDE.md rules #3, #3b, #4, #7, #8, #9.
+//
+// V2.4 — per-type HDV wallets (FlightHourType). Packages and transactions
+// are scoped to a FlightHourType. A pilot may only hold a non-zero balance
+// in ONE type at a time (single-active-type invariant, enforced in
+// applyHdvMutation). Flight debits auto-route to the pilot's currently
+// active type.
 //
 // Reference: PRD.md §4 and CLAUDE.md architectural rules.
 
@@ -59,9 +65,6 @@ model User {
   name           String
   passwordHash   String
   role           Role     @default(PILOT)
-  // Denormalized balance — must equal SUM(transactions.amountMin) for this user.
-  // NEVER update without inserting a Transaction in the same DB transaction.
-  hdvBalanceMin  Int      @default(0)
   isActive       Boolean  @default(true)
   mustResetPw    Boolean  @default(true)
   // Stripe Customer ID — created on first inline card payment so the
@@ -82,6 +85,7 @@ model User {
   bankTransfers             BankTransfer[]           @relation("UserBankTransfers")
   reviewedBankTransfers     BankTransfer[]           @relation("BankTransferReviewedBy")
   updatedBankAccounts       BankAccount[]            @relation("BankAccountUpdatedBy")
+  hourBalances              UserFlightHourBalance[]
 
   @@index([email])
   @@index([isActive])
@@ -101,6 +105,13 @@ model Reservation {
   // in minutes. V2 reservations have no HDV impact, so there is no
   // hdvDeductedMin snapshot anymore.
   durationMin     Int
+  // Pilot-supplied context shown in the calendar + upcoming lists
+  // (e.g. "Corsica trip", "License renewal"). Purely informational.
+  comment         String?
+  // Rough estimate shown in the calendar + upcoming lists. Stored as a
+  // decimal hour value with 2 fractional digits, independent from the
+  // scheduled slot duration.
+  estimatedFlightHours Decimal?     @db.Decimal(6, 2)
 
   status          ReservationStatus @default(CONFIRMED)
   cancelledAt     DateTime?
@@ -186,9 +197,18 @@ model Transaction {
   type            TransactionType
   // Signed: positive = credit, negative = debit. Always in minutes.
   amountMin       Int
-  // Snapshot of user.hdvBalanceMin AFTER this transaction was applied.
+  // Snapshot of the TYPE-SCOPED balance AFTER this transaction was applied
+  // (i.e. UserFlightHourBalance[userId, flightHourTypeId].balanceMin post-apply).
   // Enables point-in-time reconstruction without replaying full history.
+  // V2.4: used to be global before per-type wallets landed.
   balanceAfterMin Int
+
+  // FlightHourType this transaction belongs to. Required on every row:
+  // package purchases and bank transfers inherit the Package's type, flight
+  // debits inherit the user's currently active type, admin adjustments pick
+  // a type in the form, cancellation refunds mirror the original.
+  flightHourTypeId String         @db.Uuid
+  flightHourType   FlightHourType @relation(fields: [flightHourTypeId], references: [id])
 
   // EUR price in cents AT THE TIME of the transaction. Populated by the
   // Stripe webhook on PACKAGE_PURCHASE (from session.amount_total) so the
@@ -219,7 +239,9 @@ model Transaction {
   createdAt       DateTime        @default(now())
 
   @@index([userId, createdAt])
+  @@index([userId, flightHourTypeId, createdAt])
   @@index([type])
+  @@index([flightHourTypeId])
   @@index([reference]) // for Stripe session ID idempotency lookups
 }
 
@@ -298,10 +320,17 @@ model Package {
   hdvMinutes      Int
   isActive        Boolean  @default(true)
   sortOrder       Int      @default(0)
+
+  // V2.4 — required FlightHourType FK. Every package belongs to exactly
+  // one type; the checkout webhook uses this to credit the right wallet.
+  flightHourTypeId String         @db.Uuid
+  flightHourType   FlightHourType @relation(fields: [flightHourTypeId], references: [id])
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([isActive, sortOrder])
+  @@index([flightHourTypeId])
 }
 
 // V2.1 — Association bank account (single-row table managed by admins).
@@ -339,6 +368,13 @@ model BankTransfer {
   hdvMinutes    Int
   priceCentsTTC Int
 
+  // Snapshot of the FlightHourType at creation time. The admin still
+  // credits exactly this type on validation even if the Package's type
+  // is changed later or the FlightHourType row is archived.
+  flightHourTypeId   String         @db.Uuid
+  flightHourType     FlightHourType @relation(fields: [flightHourTypeId], references: [id])
+  flightHourTypeName String
+
   // "FS-XXXXXX" human-readable wire memo. Unique across the table so the
   // admin can match incoming wires unambiguously.
   reference     String             @unique
@@ -362,4 +398,45 @@ model BankTransfer {
   @@index([userId, createdAt])
   @@index([status])
   @@index([reference])
+  @@index([flightHourTypeId])
+}
+
+// V2.4 — admin-managed "type" of HDV hour (e.g. École, Voyage, Local).
+// Every Package, Transaction, and BankTransfer is scoped to exactly one
+// FlightHourType. A pilot may only hold a non-zero balance in ONE type at
+// a time (single-active-type invariant, enforced in applyHdvMutation).
+// Soft-delete only via isActive=false — historical rows still reference it.
+model FlightHourType {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  packages      Package[]
+  transactions  Transaction[]
+  userBalances  UserFlightHourBalance[]
+  bankTransfers BankTransfer[]
+
+  @@index([isActive, name])
+}
+
+// V2.4 — per-type HDV wallet. Replaces the single denormalized
+// `User.hdvBalanceMin` that existed before. Source of truth is still the
+// Transaction ledger; this table caches the per-type sum for read speed.
+//
+// Rule #2 (updated): for every (userId, flightHourTypeId),
+//   balanceMin = SUM(Transaction.amountMin WHERE userId, flightHourTypeId)
+model UserFlightHourBalance {
+  userId           String         @db.Uuid
+  user             User           @relation(fields: [userId], references: [id])
+  flightHourTypeId String         @db.Uuid
+  flightHourType   FlightHourType @relation(fields: [flightHourTypeId], references: [id])
+  balanceMin       Int            @default(0)
+  updatedAt        DateTime       @updatedAt
+
+  @@id([userId, flightHourTypeId])
+  @@index([userId])
+  @@index([flightHourTypeId])
 }
