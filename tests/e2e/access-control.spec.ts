@@ -2,9 +2,11 @@
 // with the edge-safe matcher. Defense-in-depth server-side checks run
 // in the integration tests; here we assert the UX redirect.
 
-import { test, expect, loginAs } from "./fixtures";
+import { test, expect, loginAs, resetDb } from "./fixtures";
 
 test.describe("Access control", () => {
+  test.beforeEach(() => resetDb());
+
   test("anonymous user is redirected from /dashboard to /login", async ({
     page,
   }) => {
@@ -33,5 +35,17 @@ test.describe("Access control", () => {
       data: { contentType: "image/jpeg", contentLength: 1024 },
     });
     expect(res.status()).toBe(401);
+  });
+
+  test("logout (via NextAuth signout) clears the session", async ({ page }) => {
+    await loginAs(page, "pilot1");
+    await page.waitForURL(/\/dashboard/);
+
+    // Post to /api/auth/signout with CSRF token — NextAuth v5 beta accepts
+    // a GET at that URL as well, but the cleanest from Playwright is to
+    // wipe the cookies.
+    await page.context().clearCookies();
+    await page.goto("/dashboard");
+    await expect(page).toHaveURL(/\/login/);
   });
 });

@@ -89,6 +89,13 @@ async function sendInternal(input: {
   subject: string;
   html: string;
 }): Promise<EmailResult> {
+  // Test sandbox: never reach Resend. The E2E suite hammers
+  // `createPilot` / `resetPilotPassword` and we don't want any of those
+  // to sit 30 s waiting on api.resend.com. Any RESEND_API_KEY starting
+  // with `re_test` is our fixture — short-circuit to a noop id.
+  if ((process.env.RESEND_API_KEY ?? "").startsWith("re_test")) {
+    return { id: "test-noop" };
+  }
   try {
     const resend = getResend();
     const res = await resend.emails.send({
