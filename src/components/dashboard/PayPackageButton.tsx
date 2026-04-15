@@ -108,14 +108,16 @@ export function PayPackageButton({ pkg }: { pkg: PayPackagePkg }) {
                 <span className="ml-1 text-xs text-text-subtle">TTC</span>
               </p>
             </div>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
+              iconOnly
               onClick={close}
               aria-label={COPY.common.closeDialog}
-              className="rounded-md p-1 text-text-subtle hover:bg-surface-sunken hover:text-text"
             >
-              ×
-            </button>
+              <span aria-hidden="true" className="text-lg leading-none">×</span>
+            </Button>
           </header>
 
           <div className="flex items-center gap-1 border-b border-border-subtle px-6 py-3">
@@ -456,13 +458,14 @@ function CardTabForm({
           {submit.kind === "error" && (
             <p className="text-sm text-danger">{submit.message}</p>
           )}
-          <button
+          <Button
             type="button"
+            variant="link"
+            size="sm"
             onClick={() => setShowNewCard(true)}
-            className="text-sm font-medium text-brand hover:text-brand-hover"
           >
             {COPY.payment.cardUseAnother}
-          </button>
+          </Button>
         </div>
       ) : (
         <form onSubmit={handleNewCardSubmit} className="space-y-4">
@@ -702,13 +705,15 @@ function BankTabDetails({
               {prep.reference}
             </p>
           </div>
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={copyRef}
-            className="shrink-0 rounded-md border border-brand-soft-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text transition-colors hover:bg-surface-soft"
+            className="shrink-0"
           >
             {copied ? COPY.payment.bankReferenceCopied : COPY.payment.bankReferenceCopy}
-          </button>
+          </Button>
         </div>
       </div>
 

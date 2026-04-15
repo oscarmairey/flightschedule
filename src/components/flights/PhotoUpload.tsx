@@ -15,6 +15,7 @@
 
 import { useState, useRef } from "react";
 import { Upload, X, Loader2, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 
 const MAX_PHOTOS = 5;
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -166,14 +167,16 @@ export function PhotoUpload({ name }: { name: string }) {
                   {(p.size / 1024).toFixed(0)} Ko
                 </p>
               </div>
-              <button
+              <Button
                 type="button"
+                variant="ghost-danger"
+                size="sm"
+                iconOnly
                 onClick={() => removePhoto(p.key)}
                 aria-label={`Retirer ${p.name}`}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-text-subtle transition-colors hover:bg-danger-soft hover:text-danger"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

@@ -137,7 +137,7 @@ export default async function AdminVirementsPage({
             {COPY.nav.adminVirements}
           </p>
           <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
-            Virements bancaires
+            Encaissements
           </h1>
           <p className="mt-3 max-w-xl text-base text-text-muted">
             Validez les virements reçus sur le compte de l&apos;association en

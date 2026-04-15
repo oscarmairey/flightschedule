@@ -31,6 +31,19 @@ const PILOT_PROTECTED_PREFIXES = [
 
 const ADMIN_PROTECTED_PREFIXES = ["/admin"];
 
+// Forward the request pathname via a request header so server
+// components (specifically AppShell's nav active-state) can read it
+// through `next/headers`. Setting it on the request (not the response)
+// is what makes it visible to downstream server components during the
+// same render. Keep the header name in sync with AppShell.
+const PATHNAME_HEADER = "x-pathname";
+
+function passthrough(req: { nextUrl: { pathname: string }; headers: Headers }) {
+  const headers = new Headers(req.headers);
+  headers.set(PATHNAME_HEADER, req.nextUrl.pathname);
+  return NextResponse.next({ request: { headers } });
+}
+
 export default auth((req) => {
   const { nextUrl } = req;
   const path = nextUrl.pathname;
@@ -41,7 +54,7 @@ export default auth((req) => {
 
   // Always allow public paths
   if (PUBLIC_PATHS.has(path)) {
-    return NextResponse.next();
+    return passthrough(req);
   }
 
   // Unauthenticated user trying to access a protected page → /login
@@ -66,7 +79,7 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/setup-password", nextUrl));
   }
 
-  return NextResponse.next();
+  return passthrough(req);
 });
 
 export const config = {

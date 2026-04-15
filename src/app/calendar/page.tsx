@@ -28,6 +28,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Textarea";
 import { Label } from "@/components/ui/Label";
 import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
@@ -318,13 +319,12 @@ export default async function CalendarPage({
                   ({COPY.common.optional})
                 </span>
               </Label>
-              <textarea
+              <Textarea
                 id="comment"
                 name="comment"
                 rows={3}
                 maxLength={500}
                 placeholder="Ex : voyage Corse, renouvellement licence"
-                className="block w-full rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand"
               />
             </div>
             <div className="sm:col-span-2">

@@ -13,6 +13,7 @@ import { formatDateTimeFR } from "@/lib/format";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { Label } from "@/components/ui/Label";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
@@ -233,13 +234,13 @@ export default async function AdminTarifsPage({
               <Label htmlFor="new-flightHourTypeId" required>
                 Type d&apos;heures
               </Label>
-              <select
+              <Select
                 id="new-flightHourTypeId"
                 name="flightHourTypeId"
                 required
                 disabled={activeTypes.length === 0}
-                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-base text-text focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-soft disabled:cursor-not-allowed disabled:opacity-60"
                 defaultValue=""
+                className="disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <option value="" disabled>
                   {activeTypes.length === 0
@@ -251,7 +252,7 @@ export default async function AdminTarifsPage({
                     {t.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="new-description">Description</Label>
@@ -356,12 +357,11 @@ export default async function AdminTarifsPage({
                         <Label htmlFor={`type-${pkg.id}`} required>
                           Type d&apos;heures
                         </Label>
-                        <select
+                        <Select
                           id={`type-${pkg.id}`}
                           name="flightHourTypeId"
                           required
                           defaultValue={pkg.flightHourTypeId}
-                          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-base text-text focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-soft"
                         >
                           {/* Always include current type (even if archived) so the form isn't broken. */}
                           {!activeTypes.find(
@@ -376,7 +376,7 @@ export default async function AdminTarifsPage({
                               {t.name}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       </div>
                       <div className="space-y-1.5 sm:col-span-2">
                         <Label htmlFor={`name-${pkg.id}`} required>

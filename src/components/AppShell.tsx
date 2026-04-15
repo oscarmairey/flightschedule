@@ -2,16 +2,21 @@
 //
 // Top bar (always visible):
 //   - Logo + Fraunces wordmark — the brand surface
-//   - Pilot nav items inline (md+)
+//   - Pilot nav items inline (md+) with active-state
 //   - Admin dropdown for admins (md+, native <details> — no client JS)
-//   - Sign-out button: ghost on desktop, icon-only on mobile
+//   - Sign-out button via Button primitive (ghost-danger)
 //
 // Bottom nav (mobile only):
-//   - Pilot items only with lucide icons. Admins on mobile use the
-//     dropdown which collapses into a stacked menu when the top bar wraps.
+//   - Pilot items only with lucide icons, with active-state.
+//   - Admins on mobile get a single entry point to the admin area.
+//
+// Active-state: the current pathname is forwarded by `src/proxy.ts` via
+// the `x-pathname` request header. We read it through `headers()` so this
+// stays a server component (no client JS for the whole shell).
 
 import Link from "next/link";
 import Image from "next/image";
+import { headers } from "next/headers";
 import {
   LogOut,
   ChevronDown,
@@ -21,6 +26,7 @@ import {
   Plane,
 } from "lucide-react";
 import { auth, signOut } from "@/auth";
+import { Button } from "@/components/ui/Button";
 import { COPY } from "@/lib/copy";
 import type { ReactNode } from "react";
 
@@ -43,9 +49,18 @@ const ADMIN_ITEMS: { href: string; label: string }[] = [
   { href: "/admin/tarifs", label: COPY.nav.adminTarifs },
 ];
 
+/** Exact-or-prefix match so /flights/new highlights /flights. */
+function isActive(href: string, pathname: string): boolean {
+  if (href === pathname) return true;
+  return pathname.startsWith(`${href}/`);
+}
+
 export async function AppShell({ children }: { children: ReactNode }) {
   const session = await auth();
   const isAdmin = session?.user?.role === "ADMIN";
+  const h = await headers();
+  const pathname = h.get("x-pathname") ?? "";
+  const adminOpen = pathname.startsWith("/admin");
 
   return (
     <div className="flex min-h-screen flex-col bg-surface">
@@ -73,38 +88,64 @@ export async function AppShell({ children }: { children: ReactNode }) {
 
           {/* Desktop nav */}
           <nav className="hidden flex-1 items-center justify-center gap-0.5 md:flex">
-            {PILOT_ITEMS.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="rounded-md px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-surface-sunken hover:text-text-strong"
-              >
-                {item.label}
-              </Link>
-            ))}
+            {PILOT_ITEMS.map((item) => {
+              const active = isActive(item.href, pathname);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`rounded-md px-3 py-2 text-sm font-medium transition-colors duration-[var(--duration-fast)] ease-[var(--ease-out-ui)] ${
+                    active
+                      ? "bg-brand-soft text-brand-soft-fg"
+                      : "text-text-muted hover:bg-surface-sunken hover:text-text-strong"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
 
             {isAdmin && (
-              <details className="group relative ml-1">
-                <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-surface-sunken hover:text-text-strong [&::-webkit-details-marker]:hidden">
+              <details
+                open={adminOpen ? undefined : undefined}
+                className="group relative ml-1"
+              >
+                <summary
+                  aria-current={adminOpen ? "page" : undefined}
+                  className={`flex cursor-pointer list-none items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-[var(--duration-fast)] ease-[var(--ease-out-ui)] [&::-webkit-details-marker]:hidden ${
+                    adminOpen
+                      ? "bg-brand-soft text-brand-soft-fg"
+                      : "text-text-muted hover:bg-surface-sunken hover:text-text-strong"
+                  }`}
+                >
                   <Shield className="h-4 w-4" aria-hidden="true" />
                   <span>{COPY.nav.admin}</span>
                   <ChevronDown
-                    className="h-4 w-4 transition-transform duration-200 group-open:rotate-180"
+                    className="h-4 w-4 transition-transform duration-[var(--duration-ui)] ease-[var(--ease-out-ui)] group-open:rotate-180"
                     aria-hidden="true"
                   />
                 </summary>
                 <div className="absolute right-0 top-full z-30 mt-2 min-w-52 overflow-hidden rounded-lg border border-border bg-surface-elevated shadow-lg">
                   <ul className="py-1.5">
-                    {ADMIN_ITEMS.map((item) => (
-                      <li key={item.href}>
-                        <Link
-                          href={item.href}
-                          className="block px-4 py-2 text-sm text-text-muted transition-colors hover:bg-surface-sunken hover:text-text-strong"
-                        >
-                          {item.label}
-                        </Link>
-                      </li>
-                    ))}
+                    {ADMIN_ITEMS.map((item) => {
+                      const active = isActive(item.href, pathname);
+                      return (
+                        <li key={item.href}>
+                          <Link
+                            href={item.href}
+                            aria-current={active ? "page" : undefined}
+                            className={`block px-4 py-2 text-sm transition-colors duration-[var(--duration-fast)] ease-[var(--ease-out-ui)] ${
+                              active
+                                ? "bg-brand-soft text-brand-soft-fg"
+                                : "text-text-muted hover:bg-surface-sunken hover:text-text-strong"
+                            }`}
+                          >
+                            {item.label}
+                          </Link>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               </details>
@@ -119,14 +160,16 @@ export async function AppShell({ children }: { children: ReactNode }) {
                 await signOut({ redirectTo: "/login" });
               }}
             >
-              <button
+              <Button
                 type="submit"
+                variant="secondary"
+                size="sm"
                 aria-label={COPY.nav.signOut}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-sm font-medium text-text-muted shadow-xs transition-colors hover:border-border-strong hover:bg-surface-soft hover:text-danger"
+                className="hover:text-danger"
               >
                 <LogOut className="h-4 w-4" aria-hidden="true" />
                 <span className="hidden sm:inline">{COPY.nav.signOut}</span>
-              </button>
+              </Button>
             </form>
           </div>
         </div>
@@ -149,11 +192,17 @@ export async function AppShell({ children }: { children: ReactNode }) {
         >
           {PILOT_ITEMS.map((item) => {
             const Icon = item.Icon;
+            const active = isActive(item.href, pathname);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[0.65rem] font-medium text-text-muted transition-colors hover:bg-surface-sunken hover:text-brand"
+                aria-current={active ? "page" : undefined}
+                className={`flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[0.65rem] font-medium transition-colors duration-[var(--duration-fast)] ease-[var(--ease-out-ui)] ${
+                  active
+                    ? "bg-brand-soft text-brand-soft-fg"
+                    : "text-text-muted hover:bg-surface-sunken hover:text-brand"
+                }`}
               >
                 <Icon className="h-5 w-5" aria-hidden="true" />
                 <span className="text-center leading-tight">{item.label}</span>
@@ -163,7 +212,12 @@ export async function AppShell({ children }: { children: ReactNode }) {
           {isAdmin && (
             <Link
               href="/admin/pilots"
-              className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[0.65rem] font-medium text-text-muted transition-colors hover:bg-surface-sunken hover:text-brand"
+              aria-current={adminOpen ? "page" : undefined}
+              className={`flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[0.65rem] font-medium transition-colors duration-[var(--duration-fast)] ease-[var(--ease-out-ui)] ${
+                adminOpen
+                  ? "bg-brand-soft text-brand-soft-fg"
+                  : "text-text-muted hover:bg-surface-sunken hover:text-brand"
+              }`}
             >
               <Shield className="h-5 w-5" aria-hidden="true" />
               <span className="text-center leading-tight">{COPY.nav.admin}</span>

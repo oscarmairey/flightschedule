@@ -55,8 +55,8 @@ function StatCard({
   return (
     <Card className="flex flex-1 flex-col justify-center py-3 px-4">
       <div className="flex items-center gap-1.5 text-text-subtle">
-        <Icon className="h-3 w-3" aria-hidden="true" />
-        <span className="text-xs font-medium uppercase tracking-widest">
+        <Icon className="h-4 w-4" aria-hidden="true" />
+        <span className="text-base font-medium uppercase tracking-widest">
           {label}
         </span>
       </div>

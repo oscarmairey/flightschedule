@@ -6,6 +6,7 @@
 //
 // Tones map to design tokens:
 //   - success: confirmation messages
+//   - warning: non-blocking caution (e.g. balance approaching zero)
 //   - error: validation failures, blocked operations
 //   - info: neutral notifications, brand-tinted
 //
@@ -13,9 +14,9 @@
 // never alone" rule. Use `role="alert"` so screen readers announce.
 
 import type { ReactNode } from "react";
-import { CheckCircle2, AlertTriangle, Info } from "lucide-react";
+import { CheckCircle2, AlertTriangle, Info, TriangleAlert } from "lucide-react";
 
-type Tone = "success" | "error" | "info";
+type Tone = "success" | "warning" | "error" | "info";
 
 const TONE_CONFIG: Record<
   Tone,
@@ -25,6 +26,11 @@ const TONE_CONFIG: Record<
     className: "bg-success-soft text-success-soft-fg border-success-soft-border",
     Icon: CheckCircle2,
     defaultLabel: "Succès",
+  },
+  warning: {
+    className: "bg-warning-soft text-warning-soft-fg border-warning-soft-border",
+    Icon: TriangleAlert,
+    defaultLabel: "Avertissement",
   },
   error: {
     className: "bg-danger-soft text-danger-soft-fg border-danger-soft-border",

@@ -22,6 +22,7 @@ import { presignGetUrl } from "@/lib/r2";
 import { resolveBanner } from "@/lib/banners";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Textarea";
 import { Label } from "@/components/ui/Label";
 import { Alert } from "@/components/ui/Alert";
 import { SubmitButton } from "@/components/ui/SubmitButton";
@@ -291,13 +292,12 @@ export default async function AdminEditFlightPage({
 
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="remarks">Remarques</Label>
-                <textarea
+                <Textarea
                   id="remarks"
                   name="remarks"
                   rows={3}
                   maxLength={2000}
                   defaultValue={flight.remarks ?? ""}
-                  className="block w-full rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand"
                 />
               </div>
             </div>

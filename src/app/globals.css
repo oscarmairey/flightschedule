@@ -91,15 +91,21 @@
     --fly-text-strong: oklch(0.985 0.003 75);
     --fly-text-muted: oklch(0.7 0.008 75);
     --fly-text-subtle: oklch(0.55 0.008 75);
-    --fly-text-on-brand: oklch(0.16 0.008 232);
+    /* On solid brand / danger fills we always want near-white text.
+       Even in dark mode we keep brand and danger saturated so they read
+       as "the brand blue" and "danger red", not pastel washouts. */
+    --fly-text-on-brand: oklch(0.99 0.003 75);
 
     --fly-border: oklch(0.28 0.008 70);
     --fly-border-strong: oklch(0.36 0.01 70);
     --fly-border-subtle: oklch(0.23 0.008 70);
 
-    --fly-brand: oklch(0.72 0.15 232);
-    --fly-brand-hover: oklch(0.8 0.14 232);
-    --fly-brand-strong: oklch(0.86 0.12 232);
+    /* Keep brand saturated in dark mode so near-white text on it passes
+       contrast and the primary button looks like a proper blue. Hover /
+       strong lighten slightly to signal state change against dark. */
+    --fly-brand: oklch(0.58 0.17 232);
+    --fly-brand-hover: oklch(0.64 0.17 232);
+    --fly-brand-strong: oklch(0.7 0.15 232);
     --fly-brand-soft: oklch(0.26 0.06 232);
     --fly-brand-soft-fg: oklch(0.86 0.1 232);
     --fly-brand-soft-border: oklch(0.4 0.1 232);
@@ -114,12 +120,14 @@
     --fly-warning-soft-fg: oklch(0.88 0.12 80);
     --fly-warning-soft-border: oklch(0.42 0.1 70);
 
-    --fly-danger: oklch(0.7 0.18 25);
-    --fly-danger-hover: oklch(0.78 0.18 25);
+    /* Same discipline as brand: keep danger saturated in dark mode so
+       text-on-danger stays near-white. */
+    --fly-danger: oklch(0.55 0.19 25);
+    --fly-danger-hover: oklch(0.62 0.185 25);
     --fly-danger-soft: oklch(0.27 0.05 25);
     --fly-danger-soft-fg: oklch(0.88 0.1 25);
     --fly-danger-soft-border: oklch(0.42 0.1 25);
-    --fly-text-on-danger: oklch(0.13 0.008 25);
+    --fly-text-on-danger: oklch(0.99 0.003 25);
 
     --fly-info-soft: oklch(0.26 0.06 232);
     --fly-info-soft-fg: oklch(0.85 0.1 232);
@@ -212,6 +220,13 @@
   --shadow-md: var(--fly-shadow-md);
   --shadow-lg: var(--fly-shadow-lg);
   --shadow-brand: var(--fly-shadow-brand);
+
+  /* Motion — one easing, two durations. Primitives (Button, Input,
+     Select, nav links, dropdowns) reuse these so the whole UI
+     decelerates the same way. Curve is ease-out-expo (Apple-like). */
+  --ease-out-ui: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-ui: 200ms;
 }
 
 /* ============================================================
@@ -295,11 +310,18 @@ body {
   border-radius: 4px;
 }
 
-/* Native form control reset where the OS pulls dark colors */
-input,
-select,
-textarea,
-button {
-  font: inherit;
-  color: inherit;
+/* Native form control reset where the OS pulls dark colors.
+   MUST live inside @layer base so Tailwind utility classes
+   (.text-text-on-brand, .text-text-muted, etc.) can override.
+   Without the layer wrapper, unlayered author rules beat layered
+   utilities regardless of specificity and every <button> inherits
+   ancestor color — producing black text on bg-brand buttons. */
+@layer base {
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+    color: inherit;
+  }
 }

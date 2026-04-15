@@ -43,7 +43,7 @@ export const COPY = {
     adminPilots: "Pilotes",
     adminDisponibilites: "Disponibilités",
     adminTarifs: "Tarifs",
-    adminVirements: "Virements",
+    adminVirements: "Encaissements",
     signOut: "Déconnexion",
   },
 

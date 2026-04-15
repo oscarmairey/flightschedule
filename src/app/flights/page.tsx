@@ -11,6 +11,7 @@ import { COMMON_AIRPORTS } from "@/lib/airports";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Textarea";
 import { Label } from "@/components/ui/Label";
 import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
@@ -192,12 +193,11 @@ export default async function FlightsPage({
 
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="remarks">Remarques</Label>
-                <textarea
+                <Textarea
                   id="remarks"
                   name="remarks"
                   rows={3}
                   maxLength={2000}
-                  className="block w-full rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand"
                 />
               </div>
 

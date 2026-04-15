@@ -8,6 +8,7 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 import { ArrowRight, ChevronDown, ExternalLink } from "lucide-react";
 import { auth } from "@/auth";
+import { buttonClasses } from "@/components/ui/Button";
 import { PreviewDashboard } from "@/components/landing/PreviewDashboard";
 import { PreviewCalendar } from "@/components/landing/PreviewCalendar";
 import { PreviewFlight } from "@/components/landing/PreviewFlight";
@@ -56,7 +57,7 @@ export default async function HomePage() {
             </a>
             <Link
               href="/login"
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-4 py-2 text-base font-medium text-text shadow-xs transition-colors hover:border-border-strong hover:bg-surface-soft"
+              className={buttonClasses({ variant: "secondary", size: "md" })}
             >
               Se connecter
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -97,14 +98,14 @@ export default async function HomePage() {
             <div className="mt-10 flex flex-wrap items-center gap-4">
               <a
                 href="#calendrier"
-                className="inline-flex min-h-14 items-center justify-center gap-2.5 rounded-xl bg-brand px-8 py-4 text-xl font-semibold text-text-on-brand shadow-[var(--shadow-brand)] transition-all duration-200 hover:bg-brand-hover hover:shadow-md hover:-translate-y-0.5"
+                className={buttonClasses({ variant: "primary", size: "xl" })}
               >
                 Découvrir
                 <ChevronDown className="h-5 w-5" aria-hidden="true" />
               </a>
               <Link
                 href="/login"
-                className="inline-flex min-h-14 items-center justify-center gap-2 rounded-xl border border-border bg-surface-elevated px-6 py-4 text-lg font-medium text-text shadow-xs transition-colors hover:border-border-strong hover:bg-surface-soft"
+                className={buttonClasses({ variant: "secondary", size: "xl" })}
               >
                 Se connecter
                 <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -113,7 +114,7 @@ export default async function HomePage() {
           </div>
 
           {/* Preview column */}
-          <div className="hero-enter-delayed rounded-2xl border border-border-subtle bg-surface-elevated p-5 shadow-lg sm:p-6 lg:rotate-1 lg:shadow-xl">
+          <div className="hero-enter-delayed rounded-2xl border border-border-subtle bg-surface-elevated p-5 shadow-lg sm:p-6 lg:rotate-1">
             <PreviewDashboard />
           </div>
         </div>
@@ -209,7 +210,7 @@ export default async function HomePage() {
                   href={GITHUB_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-10 items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-4 py-2 text-base font-medium text-text shadow-xs transition-colors hover:border-border-strong hover:bg-surface-soft"
+                  className={buttonClasses({ variant: "secondary", size: "md" })}
                 >
                   Voir le code source
                   <ExternalLink className="h-4 w-4" aria-hidden="true" />
@@ -232,7 +233,7 @@ export default async function HomePage() {
               <div className="mt-auto pt-6">
                 <Link
                   href="/login"
-                  className="inline-flex min-h-10 items-center gap-1.5 rounded-md bg-brand px-4 py-2 text-base font-medium text-text-on-brand shadow-[var(--shadow-brand)] transition-all hover:bg-brand-hover hover:shadow-md"
+                  className={buttonClasses({ variant: "primary", size: "md" })}
                 >
                   Démarrer
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -269,7 +270,7 @@ export default async function HomePage() {
             <div className="flex flex-col items-start gap-2 sm:items-end">
               <Link
                 href="/login"
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-md bg-brand px-5 py-2 text-base font-medium text-text-on-brand shadow-[var(--shadow-brand)] transition-all hover:bg-brand-hover hover:shadow-md"
+                className={buttonClasses({ variant: "primary", size: "md" })}
               >
                 Se connecter
                 <ArrowRight className="h-4 w-4" aria-hidden="true" />

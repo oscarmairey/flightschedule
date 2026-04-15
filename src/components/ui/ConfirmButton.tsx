@@ -36,8 +36,9 @@ export type ConfirmButtonProps = {
   triggerSize?: Size;
   triggerDisabled?: boolean;
   /**
-   * Render the trigger as a 36×36 icon-only square (hover: danger tint).
-   * Use for delete trash cans. Requires `triggerAriaLabel`.
+   * Render the trigger as a square icon-only button (ghost-danger
+   * variant, 40×40 at size="sm"). Use for delete trash cans. Requires
+   * `triggerAriaLabel`.
    */
   triggerIconOnly?: boolean;
   triggerAriaLabel?: string;
@@ -74,15 +75,17 @@ export function ConfirmButton({
   return (
     <>
       {triggerIconOnly ? (
-        <button
+        <Button
           type="button"
+          variant="ghost-danger"
+          size="sm"
+          iconOnly
           aria-label={triggerAriaLabel ?? "Confirmer"}
           disabled={triggerDisabled}
           onClick={() => dialogRef.current?.showModal()}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md text-text-subtle transition-colors hover:bg-danger-soft hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
         >
           {triggerLabel}
-        </button>
+        </Button>
       ) : (
         <Button
           type="button"
