@@ -29,10 +29,26 @@ export type RateLimitResult = {
   resetAt: number;
 };
 
+// Opportunistic prune to keep memory bounded. Called from both the
+// consume and peek paths so long-running dev servers don't leak entries.
+function prune(now: number): void {
+  if (buckets.size <= MAX_BUCKETS) return;
+  for (const [k, b] of buckets) {
+    if (b.resetAt < now) buckets.delete(k);
+    if (buckets.size <= MAX_BUCKETS / 2) break;
+  }
+}
+
 /**
- * Check whether the caller identified by `key` is allowed to make
- * another request within the current window. Returns ok=false if the
- * limit is exceeded.
+ * Atomically check + consume a token.
+ *
+ * Increments the counter every call. Use this when EVERY request is a
+ * countable event regardless of outcome — e.g. `/api/upload/presign`
+ * (the presigned URL is issued either way, so every call eats a token).
+ *
+ * Do NOT use this for login, where only FAILED attempts should count —
+ * reach for `rateLimitPeek` + `rateLimitHit` instead so a legitimate
+ * pilot can keep signing in after a typo on somebody else's laptop.
  *
  * Usage:
  *   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] ?? 'unknown';
@@ -44,14 +60,7 @@ export function rateLimit(
   opts: { limit: number; windowMs: number },
 ): RateLimitResult {
   const now = Date.now();
-
-  // Opportunistic prune to keep memory bounded.
-  if (buckets.size > MAX_BUCKETS) {
-    for (const [k, b] of buckets) {
-      if (b.resetAt < now) buckets.delete(k);
-      if (buckets.size <= MAX_BUCKETS / 2) break;
-    }
-  }
+  prune(now);
 
   const existing = buckets.get(key);
   if (!existing || existing.resetAt < now) {
@@ -69,6 +78,43 @@ export function rateLimit(
     remaining: opts.limit - existing.count,
     resetAt: existing.resetAt,
   };
+}
+
+/**
+ * Check whether `key` is currently at or over `limit` WITHOUT
+ * consuming a token. Use before an operation whose SUCCESS should
+ * NOT count against the limit (e.g. a correct password), paired with
+ * `rateLimitHit` on the failure branch.
+ *
+ * Returns `true` if the caller is still allowed to attempt the
+ * operation, `false` if they've burned through the budget.
+ */
+export function rateLimitPeek(key: string, limit: number): boolean {
+  const now = Date.now();
+  const existing = buckets.get(key);
+  if (!existing || existing.resetAt < now) return true;
+  return existing.count < limit;
+}
+
+/**
+ * Record a single failure against `key`, opening a fresh window if
+ * none is active. Mirror of the "consume" side of `rateLimit` but
+ * without the up-front check — the caller has already verified via
+ * `rateLimitPeek` that they were allowed to attempt.
+ */
+export function rateLimitHit(
+  key: string,
+  opts: { windowMs: number },
+): void {
+  const now = Date.now();
+  prune(now);
+
+  const existing = buckets.get(key);
+  if (!existing || existing.resetAt < now) {
+    buckets.set(key, { count: 1, resetAt: now + opts.windowMs });
+    return;
+  }
+  existing.count += 1;
 }
 
 /**

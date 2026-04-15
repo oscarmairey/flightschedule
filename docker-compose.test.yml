@@ -1,0 +1,39 @@
+# ════════════════════════════════════════════════════════════
+# FlightSchedule — isolated Postgres for the test suite.
+# ════════════════════════════════════════════════════════════
+# Distinct container name, port, and volume from docker-compose.yml
+# so unit/integration tests can run concurrently with the dev DB
+# without crossing state. Legacy `cavok-` prefix preserved per
+# CLAUDE.md "Legacy cavok-* names" rule.
+#
+# Usage:
+#   pnpm test:db:up
+#   pnpm test:db:reset
+#   pnpm test:int
+#   pnpm test:db:down    # wipes the volume
+# ════════════════════════════════════════════════════════════
+
+services:
+  db-test:
+    image: postgres:16-alpine
+    container_name: cavok-db-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cavok_test
+      POSTGRES_PASSWORD: cavok_test
+      POSTGRES_DB: cavok_test
+      TZ: Europe/Paris
+      PGTZ: Europe/Paris
+    ports:
+      - "127.0.0.1:5443:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cavok_test -d cavok_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  postgres_test_data:
+    name: cavok_postgres_test_data

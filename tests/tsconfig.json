@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals", "node"],
+    "noEmit": true
+  },
+  "include": [
+    "**/*.ts",
+    "../vitest.config.ts",
+    "../vitest.workspace.ts",
+    "../playwright.config.ts",
+    "../next-env.d.ts",
+    "../.next/types/**/*.ts"
+  ]
+}

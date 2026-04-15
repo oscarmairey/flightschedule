@@ -9,7 +9,16 @@ import Credentials from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { authConfig } from "@/auth.config";
-import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimitPeek, rateLimitHit, getClientIp } from "@/lib/rate-limit";
+
+// Login-specific limits. Only FAILED attempts count against the bucket,
+// so a pilot can happily keep signing in as often as they need — and
+// the limiter still blocks credential stuffing after 10 bad passwords
+// per email / 30 per IP.
+const EMAIL_FAIL_LIMIT = 10;
+const EMAIL_WINDOW_MS = 15 * 60_000;
+const IP_FAIL_LIMIT = 30;
+const IP_WINDOW_MS = 60_000;
 
 // `unstable_update` is the Auth.js v5 way to refresh the JWT/session payload
 // from a server action without forcing a sign-out + sign-in. We use it on
@@ -32,30 +41,37 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
 
         if (!email || !password) return null;
 
-        // Rate limit by email — 10 attempts per 15 minutes.
-        const emailRl = rateLimit(`login:${email}`, {
-          limit: 10,
-          windowMs: 15 * 60_000,
-        });
-        if (!emailRl.ok) return null;
-
-        // Rate limit by IP — 30 attempts per minute. Generous because
-        // pilots at the airfield may share a single Wi-Fi IP.
+        const emailKey = `login:${email}`;
         const ip = request ? getClientIp(request as Request) : "unknown";
-        const ipRl = rateLimit(`login:ip:${ip}`, {
-          limit: 30,
-          windowMs: 60_000,
-        });
-        if (!ipRl.ok) return null;
+        const ipKey = `login:ip:${ip}`;
+
+        // PEEK ONLY — consulting the buckets without consuming. If the
+        // caller is already over budget (10 bad passwords in 15 min for
+        // this email, or 30 in 60s for this IP), reject before touching
+        // the DB or running bcrypt. Successful logins NEVER consume a
+        // token, so a pilot retyping their correct password 50× never
+        // locks themselves out.
+        if (!rateLimitPeek(emailKey, EMAIL_FAIL_LIMIT)) return null;
+        if (!rateLimitPeek(ipKey, IP_FAIL_LIMIT)) return null;
 
         const user = await prisma.user.findUnique({
           where: { email },
         });
 
-        if (!user || !user.isActive) return null;
+        if (!user || !user.isActive) {
+          // Unknown email / deactivated user → still a failure from the
+          // credential-stuffer's perspective. Count it.
+          rateLimitHit(emailKey, { windowMs: EMAIL_WINDOW_MS });
+          rateLimitHit(ipKey, { windowMs: IP_WINDOW_MS });
+          return null;
+        }
 
         const ok = await compare(password, user.passwordHash);
-        if (!ok) return null;
+        if (!ok) {
+          rateLimitHit(emailKey, { windowMs: EMAIL_WINDOW_MS });
+          rateLimitHit(ipKey, { windowMs: IP_WINDOW_MS });
+          return null;
+        }
 
         // Update last login (fire-and-forget — don't block sign-in if it fails)
         prisma.user
