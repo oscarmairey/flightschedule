@@ -1,10 +1,18 @@
 // FlightSchedule — weekly calendar grid.
 //
 // Server component. Renders a Mon→Sun week with time-of-day rows on the
-// left axis. V2: the aircraft is available 24/7 by default, so cells are
-// rendered "open" by default. Cells inside an unavailability exception
-// get a red overlay. Reservations render as colored blocks on top — sky
-// blue for own bookings, warm slate for others.
+// left axis. Availability model (V2):
+//   - If any `OpenPeriod` rows exist, only days that fall inside at
+//     least one open period are considered bookable. Every other day
+//     is rendered entirely closed (red overlay, not clickable). This
+//     mirrors the server-side check in `isWithinAvailability` so the
+//     UI matches the logic — a slot the server would reject must not
+//     look open on the grid.
+//   - If no `OpenPeriod` rows exist at all, the aircraft is treated as
+//     always open (fresh-install fallback), matching `availability.ts`.
+//   - Within an open day, cells inside an `AvailabilityBlock` exception
+//     get the same red overlay. Reservations render as colored blocks
+//     on top — sky blue for own bookings, warm slate for others.
 //
 // Design constraints:
 //   - Mobile-first: on small screens, scrolls horizontally with snap
@@ -111,7 +119,7 @@ export async function WeekCalendar({
   const days = buildWeekDays(weekStart);
   const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const [reservations, ...unavailPerDay] = await Promise.all([
+  const [reservations, openPeriodCount, weekOpenPeriods] = await Promise.all([
     prisma.reservation.findMany({
       where: {
         status: "CONFIRMED",
@@ -121,8 +129,31 @@ export async function WeekCalendar({
       include: { user: { select: { name: true } } },
       orderBy: { startsAt: "asc" },
     }),
-    ...days.map((d) => getUnavailabilityForDate(d.date)),
+    prisma.openPeriod.count(),
+    // Open periods overlapping the visible week. Bounds are inclusive
+    // dates in DB (`@db.Date` = UTC midnight); the last visible day is
+    // `weekEnd - 1ms`, which is still the same Paris-local Sunday.
+    prisma.openPeriod.findMany({
+      where: {
+        startDate: { lte: new Date(weekEnd.getTime() - 1) },
+        endDate: { gte: weekStart },
+      },
+      select: { startDate: true, endDate: true },
+    }),
   ]);
+  const unavailPerDay = await Promise.all(
+    days.map((d) => getUnavailabilityForDate(d.date)),
+  );
+
+  // Determine which days in the visible week are inside any OpenPeriod.
+  // If no OpenPeriod rows exist at all, everything is open (fallback).
+  const dayIsOpen: boolean[] = days.map((d) => {
+    if (openPeriodCount === 0) return true;
+    const dayUtcMidnight = new Date(`${d.yyyymmdd}T00:00:00.000Z`);
+    return weekOpenPeriods.some(
+      (p) => p.startDate <= dayUtcMidnight && p.endDate >= dayUtcMidnight,
+    );
+  });
 
   // Build per-day segments. A multi-day reservation appears once on each
   // Paris-local day it touches, with `dayStartMin/dayEndMin` clamped to
@@ -231,21 +262,25 @@ export async function WeekCalendar({
           <div className="px-2 py-3" aria-hidden="true" />
           {days.map((d, i) => {
             const isToday = d.yyyymmdd === todayWC.yyyymmdd;
+            // Today uses a warm amber tint so it can't be confused with
+            // "own reservation" which is brand blue. The numeral gets a
+            // colored accent + the cell below gets a top ring (see the
+            // slot cell below for the matching ring).
             return (
               <div
                 key={i}
                 className={`border-l border-border-subtle px-2 py-3 text-center ${
-                  isToday ? "bg-brand-soft" : ""
+                  isToday ? "bg-warning-soft/40" : ""
                 }`}
               >
                 <div
-                  className={isToday ? "text-brand-soft-fg" : "text-text-subtle"}
+                  className={isToday ? "text-warning-soft-fg" : "text-text-subtle"}
                 >
                   {DAY_LABELS_FR[new Date(`${d.yyyymmdd}T12:00:00Z`).getUTCDay()].slice(0, 3)}
                 </div>
                 <div
                   className={`font-display text-base font-semibold normal-case tracking-tight tabular ${
-                    isToday ? "text-brand" : "text-text-strong"
+                    isToday ? "text-warning-soft-fg" : "text-text-strong"
                   }`}
                 >
                   {formatDayMonthShortFR(d.date)}
@@ -255,7 +290,7 @@ export async function WeekCalendar({
           })}
         </div>
 
-        {/* Slot grid — 5 rows of 3 hours each */}
+        {/* Slot grid — ROWS (8) rows of 3 hours each, 00h–24h */}
         <div className="relative bg-surface-elevated">
           {Array.from({ length: ROWS }).map((_, rowIdx) => {
             const slotMin = VISIBLE_START_MIN + rowIdx * SLOT_MIN;
@@ -280,7 +315,11 @@ export async function WeekCalendar({
                   );
                   const isOwn = segment?.r.userId === currentUserId;
                   const isToday = d.yyyymmdd === todayWC.yyyymmdd;
+                  const isDayClosed = !dayIsOpen[dayIdx];
 
+                  // Reservations still render on top of a closed day —
+                  // they're historical or were placed before the period
+                  // was tightened, and the pilot still needs to see them.
                   if (segment) {
                     const bs = segment.dayStartMin;
                     const be = segment.dayEndMin;
@@ -314,6 +353,18 @@ export async function WeekCalendar({
                     );
                   }
 
+                  if (isDayClosed) {
+                    return (
+                      <div
+                        key={dayIdx}
+                        role="img"
+                        aria-label="Fermé — hors période d'ouverture"
+                        title="Fermé — hors période d'ouverture"
+                        className="min-h-32 border-l border-border-subtle bg-danger-soft/60"
+                      />
+                    );
+                  }
+
                   if (unavailHit) {
                     return (
                       <div
@@ -339,9 +390,7 @@ export async function WeekCalendar({
                       aria-label={`Réserver le ${formatDateFR(d.date)} à ${timeStr}`}
                       title={`Disponible — réserver à ${timeStr}`}
                       className={`min-h-32 border-l border-border-subtle transition-colors hover:bg-surface-sunken/40 ${
-                        isToday
-                          ? "ring-1 ring-inset ring-brand-soft-border/30"
-                          : ""
+                        isToday ? "bg-warning-soft/10" : ""
                       }`}
                     />
                   );

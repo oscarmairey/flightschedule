@@ -205,6 +205,61 @@ export async function promotePilotToAdmin(formData: FormData) {
   redirect(`/admin/pilots/${pilot.id}?promoted=1`);
 }
 
+const ChangeEmailSchema = z.object({
+  pilotId: UuidSchema,
+  email: EmailSchema,
+});
+
+export async function changePilotEmail(formData: FormData) {
+  const admin = await requireAdmin();
+
+  const parsed = ChangeEmailSchema.safeParse({
+    pilotId: formData.get("pilotId"),
+    email: formData.get("email"),
+  });
+  if (!parsed.success) {
+    const id = formData.get("pilotId");
+    if (typeof id === "string") redirect(`/admin/pilots/${id}?error=bad_email`);
+    redirect("/admin/pilots");
+  }
+
+  const pilot = await prisma.user.findUnique({
+    where: { id: parsed.data.pilotId },
+    select: { id: true, email: true },
+  });
+  if (!pilot) redirect("/admin/pilots");
+
+  // No-op if the email is unchanged — avoid the unique-collision check
+  // round-trip and the audit log noise.
+  if (pilot.email === parsed.data.email) {
+    redirect(`/admin/pilots/${pilot.id}`);
+  }
+
+  // Uniqueness pre-check. The DB unique index on User.email is the
+  // ultimate guard, but the pre-check lets us redirect with a precise
+  // error code instead of crashing the server action.
+  const collision = await prisma.user.findUnique({
+    where: { email: parsed.data.email },
+    select: { id: true },
+  });
+  if (collision && collision.id !== pilot.id) {
+    redirect(`/admin/pilots/${pilot.id}?error=email_taken`);
+  }
+
+  await prisma.user.update({
+    where: { id: pilot.id },
+    data: { email: parsed.data.email },
+  });
+
+  console.log(
+    `[admin/pilots] ${admin.user.email} changed email for pilot ${pilot.id} : ${pilot.email} → ${parsed.data.email}`,
+  );
+
+  revalidatePath(`/admin/pilots/${pilot.id}`);
+  revalidatePath("/admin/pilots");
+  redirect(`/admin/pilots/${pilot.id}?emailchanged=1`);
+}
+
 export async function togglePilotActive(formData: FormData) {
   const admin = await requireAdmin();
   const parsed = PilotIdOnlySchema.safeParse({ pilotId: formData.get("pilotId") });

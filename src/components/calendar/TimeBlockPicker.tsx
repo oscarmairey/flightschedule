@@ -55,13 +55,13 @@ export function TimeBlockPicker({ name, defaultValue, ariaLabel }: Props) {
               role="radio"
               aria-checked={selected}
               onClick={() => setValue(b)}
-              className={`tabular min-h-11 rounded-md border px-2 py-2 text-sm font-semibold transition-colors focus:outline-none ${
+              className={`tabular min-h-11 rounded-md border px-2 py-2 text-sm font-semibold transition-colors ${
                 selected
                   ? "border-brand bg-brand text-text-on-brand shadow-[var(--shadow-brand)]"
                   : "border-border bg-surface-elevated text-text hover:border-border-strong hover:bg-surface-soft"
               }`}
             >
-              {b.slice(0, 2)}
+              {b.slice(0, 2)}h
             </button>
           );
         })}

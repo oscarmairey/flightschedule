@@ -10,14 +10,20 @@ import { ChevronLeft, ChevronRight, CalendarRange } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
-import { formatDateFR, formatDateTimeFR } from "@/lib/format";
-// `fmtWeekRangeFR` builds the H1 "13/04/2026 – 19/04/2026" string from
-// the Monday-anchored week start, using the canonical formatDateFR helper
-// (locked to fr-FR + Europe/Paris). Defined inline below; do not inline
-// any Intl.DateTimeFormat call elsewhere.
+import {
+  formatDateFR,
+  formatDateTimeFR,
+  parisLocalDateString,
+  startOfParisWeek,
+  shiftParisWeek,
+  parisWeekParam,
+  formatParisWeekRange,
+  parseWeekParam,
+} from "@/lib/format";
 import { formatHHMM } from "@/lib/duration";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { Alert } from "@/components/ui/Alert";
@@ -25,52 +31,10 @@ import { AppShell } from "@/components/AppShell";
 import { WeekCalendar } from "@/components/calendar/WeekCalendar";
 import { CancelReservationButton } from "@/components/calendar/CancelReservationButton";
 import { TimeBlockPicker, type TimeBlock } from "@/components/calendar/TimeBlockPicker";
+import { resolveBanner } from "@/lib/banners";
 import { createReservation } from "./actions";
 
 const TZ = "Europe/Paris";
-
-/**
- * Compute the Monday-anchored start of the week containing a given UTC
- * instant, expressed as a UTC instant representing 00:00 Paris time.
- */
-function startOfParisWeek(d: Date): Date {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ,
-    weekday: "short",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const parts = fmt.formatToParts(d);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  const weekday = get("weekday");
-  const DOW: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
-  const diff = DOW[weekday] ?? 0;
-  // Construct a UTC instant for Paris-local Monday 00:00 of this week.
-  const ymd = `${get("year")}-${get("month")}-${get("day")}`;
-  const monday = new Date(`${ymd}T00:00:00+02:00`); // CEST guess
-  monday.setUTCDate(monday.getUTCDate() - diff);
-  return monday;
-}
-
-function shiftWeek(weekStart: Date, weeks: number): Date {
-  return new Date(weekStart.getTime() + weeks * 7 * 24 * 60 * 60 * 1000);
-}
-
-function fmtWeekStartParam(d: Date): string {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  return fmt.format(d); // YYYY-MM-DD
-}
-
-function fmtWeekRangeFR(start: Date): string {
-  const end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
-  return `${formatDateFR(start)} – ${formatDateFR(end)}`;
-}
 
 export default async function CalendarPage({
   searchParams,
@@ -90,16 +54,11 @@ export default async function CalendarPage({
 
   // Resolve week
   const now = new Date();
-  let weekStart: Date;
-  if (sp.week && /^\d{4}-\d{2}-\d{2}$/.test(sp.week)) {
-    weekStart = startOfParisWeek(new Date(`${sp.week}T12:00:00+02:00`));
-  } else {
-    weekStart = startOfParisWeek(now);
-  }
+  const weekStart = parseWeekParam(sp.week) ?? startOfParisWeek(now);
 
-  const prevWeek = fmtWeekStartParam(shiftWeek(weekStart, -1));
-  const nextWeek = fmtWeekStartParam(shiftWeek(weekStart, 1));
-  const thisWeek = fmtWeekStartParam(startOfParisWeek(now));
+  const prevWeek = parisWeekParam(shiftParisWeek(weekStart, -1));
+  const nextWeek = parisWeekParam(shiftParisWeek(weekStart, 1));
+  const thisWeek = parisWeekParam(startOfParisWeek(now));
 
   // Pre-selected slot for the booking form (clicked from the grid)
   const slotMatch = sp.slot?.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/);
@@ -132,34 +91,42 @@ export default async function CalendarPage({
     take: 20,
   });
 
-  const banner =
-    sp.error === "overlap"
-      ? { tone: "error" as const, msg: "Cette plage chevauche une réservation existante." }
-      : sp.error === "past"
-        ? { tone: "error" as const, msg: "Impossible de réserver dans le passé." }
-        : sp.error === "window"
-          ? { tone: "error" as const, msg: sp.msg ?? "Plage hors disponibilité." }
-          : sp.error === "negative_balance"
-          ? { tone: "error" as const, msg: "Votre solde HDV est négatif. Rechargez votre compte avant de réserver." }
-          : sp.error === "late_cancel"
-            ? { tone: "error" as const, msg: "Annulation impossible à moins de 24 h." }
-            : sp.error === "locked"
-              ? { tone: "error" as const, msg: "Réservation verrouillée par un vol existant." }
-              : sp.error === "auto_created"
-                ? {
-                    tone: "error" as const,
-                    msg: "Cette réservation a été créée par un vol et ne peut pas être annulée.",
-                  }
-                : sp.error === "invalid"
-                  ? { tone: "error" as const, msg: COPY.errors.invalidInput }
-                  : sp.booked === "1"
-                    ? { tone: "success" as const, msg: "Réservation confirmée." }
-                    : sp.cancelled === "1"
-                      ? { tone: "success" as const, msg: "Réservation annulée." }
-                      : null;
+  const banner = resolveBanner(sp, {
+    "error:overlap": {
+      tone: "error",
+      msg: "Cette plage chevauche une réservation existante.",
+    },
+    "error:past": {
+      tone: "error",
+      msg: "Impossible de réserver dans le passé.",
+    },
+    "error:window": {
+      tone: "error",
+      msg: (sp) => sp.msg ?? "Plage hors disponibilité.",
+    },
+    "error:negative_balance": {
+      tone: "error",
+      msg: "Rechargez votre compte pour pouvoir réserver.",
+    },
+    "error:late_cancel": {
+      tone: "error",
+      msg: "Annulation impossible à moins de 24 h.",
+    },
+    "error:locked": {
+      tone: "error",
+      msg: "Réservation verrouillée par un vol existant.",
+    },
+    "error:auto_created": {
+      tone: "error",
+      msg: "Cette réservation a été créée par un vol et ne peut pas être annulée.",
+    },
+    "error:invalid": { tone: "error", msg: COPY.errors.invalidInput },
+    booked: { tone: "success", msg: "Réservation confirmée." },
+    cancelled: { tone: "success", msg: "Réservation annulée." },
+  });
 
   const buildSlotHref = (date: string, time: string) =>
-    `/calendar?week=${fmtWeekStartParam(weekStart)}&slot=${date}T${time}`;
+    `/calendar?week=${parisWeekParam(weekStart)}&slot=${date}T${time}`;
 
   return (
     <AppShell>
@@ -199,6 +166,21 @@ export default async function CalendarPage({
                 );
                 const cancellable =
                   new Date() < cutoff && !r.autoCreatedFromFlight;
+
+                // Multi-day = spans more than 24h OR crosses a Paris-local
+                // calendar date boundary. In both cases we show "Du … au …"
+                // and count the calendar days the reservation touches
+                // rather than raw hours — "2 jours" reads better than "48h".
+                const startYmd = parisLocalDateString(r.startsAt);
+                const endYmd = parisLocalDateString(r.endsAt);
+                const isMultiDay =
+                  startYmd !== endYmd || r.durationMin > 24 * 60;
+                const nbDays =
+                  Math.round(
+                    (new Date(endYmd).getTime() -
+                      new Date(startYmd).getTime()) /
+                      (24 * 60 * 60 * 1000),
+                  ) + 1;
                 return (
                   <li
                     key={r.id}
@@ -206,7 +188,9 @@ export default async function CalendarPage({
                   >
                     <div>
                       <p className="font-display text-base font-semibold text-text-strong">
-                        {formatDateFR(r.startsAt)}
+                        {isMultiDay
+                          ? `Du ${formatDateFR(r.startsAt)} au ${formatDateFR(r.endsAt)}`
+                          : formatDateFR(r.startsAt)}
                       </p>
                       <p className="mt-0.5 text-sm tabular text-text-muted">
                         {new Intl.DateTimeFormat("fr-FR", {
@@ -222,7 +206,9 @@ export default async function CalendarPage({
                         }).format(r.endsAt)}
                         <span className="mx-2 text-text-subtle">·</span>
                         <span className="font-semibold text-text">
-                          {formatHHMM(r.durationMin)}
+                          {isMultiDay
+                            ? `${nbDays} ${nbDays > 1 ? "jours" : "jour"}`
+                            : formatHHMM(r.durationMin)}
                         </span>
                       </p>
                     </div>
@@ -300,9 +286,9 @@ export default async function CalendarPage({
               />
             </div>
             <div className="sm:col-span-2">
-              <Button type="submit" size="lg">
+              <SubmitButton size="lg" pendingLabel="Réservation…">
                 Réserver
-              </Button>
+              </SubmitButton>
             </div>
           </form>
         </Card>
@@ -310,7 +296,7 @@ export default async function CalendarPage({
         {/* 3. Week calendar grid */}
         <div id="calendrier" className="mb-4 flex flex-wrap items-end justify-between gap-3 scroll-mt-6">
           <h2 className="font-display text-2xl font-semibold tracking-tight text-text-strong">
-            {fmtWeekRangeFR(weekStart)}
+            {formatParisWeekRange(weekStart)}
           </h2>
           <div className="flex items-center gap-2">
             <Link href={`/calendar?week=${prevWeek}`} scroll={false}>

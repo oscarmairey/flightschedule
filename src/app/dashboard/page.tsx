@@ -6,22 +6,18 @@
 //   2. Forfaits HDV — purchase packages (uniform list, no featured row)
 //   3. Historique des mouvements — full transaction history (50 rows)
 
-import { Plane, TrendingUp } from "lucide-react";
+import Link from "next/link";
+import { Plane, TrendingUp, BookOpen } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
-import {
-  formatHHMM,
-  formatHHMMSigned,
-  balanceTier,
-  BALANCE_TIER_FG_CLASSES,
-  BALANCE_TIER_LABELS,
-} from "@/lib/duration";
+import { formatHHMM, formatHHMMSigned } from "@/lib/duration";
 import { formatDateTimeFR } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
+import { HeroBalance } from "@/components/HeroBalance";
 import { PayPackageButton } from "@/components/dashboard/PayPackageButton";
 
 export default async function DashboardPage({
@@ -107,16 +103,9 @@ export default async function DashboardPage({
   ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
   const balance = user?.hdvBalanceMin ?? 0;
-  const tier = balanceTier(balance);
-  const tierLabel = BALANCE_TIER_LABELS[tier];
-  const tierFg = BALANCE_TIER_FG_CLASSES[tier];
 
   const ytdMin = ytdAgg._sum.actualDurationMin ?? 0;
   const allTimeMin = allTimeAgg._sum.actualDurationMin ?? 0;
-
-  const balanceHours = Math.floor(Math.abs(balance) / 60);
-  const balanceMinutes = Math.abs(balance) % 60;
-  const balanceSign = balance < 0 ? "−" : "";
 
   const errorBanner =
     params.error === "invalid_package"
@@ -129,7 +118,7 @@ export default async function DashboardPage({
         {/* Greeting */}
         <header className="mb-10">
           <p className="text-sm font-medium uppercase tracking-[0.14em] text-text-subtle">
-            {COPY.dashboard.welcome.replace(",", "")}
+            {COPY.dashboard.welcome}
           </p>
           <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
             {session.user.name}
@@ -153,25 +142,11 @@ export default async function DashboardPage({
               className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-brand/10 blur-3xl"
             />
             <div className="relative">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-brand-soft-fg/80">
-                  {COPY.dashboard.balanceLabel}
-                </p>
-                <Badge variant="brand" size="sm">
-                  <span aria-hidden="true">●</span>
-                  {tierLabel}
-                </Badge>
-              </div>
-              <p
-                className={`font-display tabular mt-4 text-[clamp(4.5rem,14vw,7rem)] font-semibold leading-none tracking-tight ${tierFg}`}
-              >
-                {balanceSign}
-                {balanceHours}
-                <span className="text-text-strong/30">h</span>
-                <span className="text-[0.5em] text-text-strong/70">
-                  {balanceMinutes.toString().padStart(2, "0")}
-                </span>
-              </p>
+              <HeroBalance
+                balanceMin={balance}
+                label={COPY.dashboard.balanceLabel}
+                size="xl"
+              />
               <p className="mt-4 max-w-sm text-sm leading-relaxed text-text-muted">
                 {balance < 0
                   ? "Votre solde est négatif. Rechargez votre compte pour pouvoir réserver."
@@ -207,18 +182,31 @@ export default async function DashboardPage({
                 </p>
               </div>
             </Card>
-            <Card className="flex items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2 text-text-subtle">
-                  <span className="text-xs font-medium uppercase tracking-[0.12em]">
-                    Vols
-                  </span>
+            <Link
+              href="/flights"
+              className="group block rounded-lg transition-colors"
+              aria-label="Voir l'historique des vols"
+            >
+              <Card className="flex items-center justify-between gap-4 transition-colors group-hover:border-brand-soft-border">
+                <div>
+                  <div className="flex items-center gap-2 text-text-subtle">
+                    <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span className="text-xs font-medium uppercase tracking-[0.12em]">
+                      Vols
+                    </span>
+                  </div>
+                  <p className="font-display tabular mt-1 text-3xl font-semibold tracking-tight text-text-strong">
+                    {totalFlights}
+                  </p>
                 </div>
-                <p className="font-display tabular mt-1 text-3xl font-semibold tracking-tight text-text-strong">
-                  {totalFlights}
-                </p>
-              </div>
-            </Card>
+                <span
+                  aria-hidden="true"
+                  className="text-text-subtle transition-colors group-hover:text-brand"
+                >
+                  →
+                </span>
+              </Card>
+            </Link>
           </div>
         </section>
 

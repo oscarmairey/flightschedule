@@ -153,6 +153,14 @@ model Flight {
   engineStart              String       @db.VarChar(5)
   engineStop               String       @db.VarChar(5)
 
+  // Tachymeter (hour-meter) readings at bloc OFF / bloc ON, stored as
+  // hundredths of an hour to stay integer-only per rule #1 (e.g. the
+  // user-facing value "1234.56 h" is persisted as 123456).
+  // Optional: historic flights predate the field, and not every
+  // aircraft has a tach reading worth recording.
+  tachyStartHundredths     Int?
+  tachyStopHundredths      Int?
+
   landings                 Int          @default(1)
   remarks                  String?
 

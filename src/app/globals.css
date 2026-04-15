@@ -58,9 +58,11 @@
 
   /* Danger — landing-light red */
   --fly-danger: oklch(0.58 0.18 25);
+  --fly-danger-hover: oklch(0.5 0.19 25);
   --fly-danger-soft: oklch(0.96 0.03 25);
   --fly-danger-soft-fg: oklch(0.36 0.13 25);
   --fly-danger-soft-border: oklch(0.85 0.08 25);
+  --fly-text-on-danger: oklch(0.99 0.003 25);
 
   /* Info — uses brand hue for cohesion */
   --fly-info-soft: oklch(0.96 0.025 232);
@@ -113,9 +115,11 @@
     --fly-warning-soft-border: oklch(0.42 0.1 70);
 
     --fly-danger: oklch(0.7 0.18 25);
+    --fly-danger-hover: oklch(0.78 0.18 25);
     --fly-danger-soft: oklch(0.27 0.05 25);
     --fly-danger-soft-fg: oklch(0.88 0.1 25);
     --fly-danger-soft-border: oklch(0.42 0.1 25);
+    --fly-text-on-danger: oklch(0.13 0.008 25);
 
     --fly-info-soft: oklch(0.26 0.06 232);
     --fly-info-soft-fg: oklch(0.85 0.1 232);
@@ -180,9 +184,11 @@
   --color-warning-soft-border: var(--fly-warning-soft-border);
 
   --color-danger: var(--fly-danger);
+  --color-danger-hover: var(--fly-danger-hover);
   --color-danger-soft: var(--fly-danger-soft);
   --color-danger-soft-fg: var(--fly-danger-soft-fg);
   --color-danger-soft-border: var(--fly-danger-soft-border);
+  --color-text-on-danger: var(--fly-text-on-danger);
 
   --color-info-soft: var(--fly-info-soft);
   --color-info-soft-fg: var(--fly-info-soft-fg);

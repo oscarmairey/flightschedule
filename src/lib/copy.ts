@@ -37,7 +37,8 @@ export const COPY = {
   nav: {
     dashboard: "Tableau de bord",
     calendar: "Mes réservations",
-    newFlight: "Mes vols",
+    newFlight: "Nouveau vol",
+    myFlights: "Mes vols",
     admin: "Administration",
     adminPilots: "Pilotes",
     adminDisponibilites: "Disponibilités",
@@ -70,14 +71,14 @@ export const COPY = {
 
   dashboard: {
     title: "Tableau de bord",
-    welcome: "Bienvenue,",
+    welcome: "Bienvenue",
     adminBadge: "Administrateur",
     balanceLabel: "Solde HDV",
     buyHdv: "Acheter des HDV",
     book: "Réserver",
     logFlight: "Saisir un vol",
     packages: "Forfaits HDV",
-    pkgVatNote: "TVA 20 % appliquée à la caisse.",
+    pkgVatNote: "Une TVA de 20% sera appliquée",
     buy: "Acheter",
     pkgUnavailable: "Bientôt disponible",
     transactions: "Historique des mouvements",
@@ -140,8 +141,6 @@ export const COPY = {
     blocOff: "Heure bloc OFF",
     blocOn: "Heure bloc ON",
     durationComputed: "Durée calculée",
-    modeExisting: "Sur une réservation existante",
-    modeOnTheGo: "Vol sans réservation préalable",
   },
 
   txTypes: {

@@ -114,7 +114,7 @@ export default async function AdminPilotsPage({
               {COPY.nav.adminPilots}
             </p>
             <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
-              {pilots.length} compte{pilots.length > 1 ? "s" : ""}
+              {pilots.length} compte{pilots.length !== 1 ? "s" : ""}
             </h1>
           </div>
           <Link href="/admin/pilots/new">

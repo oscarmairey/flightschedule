@@ -18,7 +18,7 @@ import {
   Shield,
   LayoutGrid,
   CalendarDays,
-  PencilLine,
+  Plane,
 } from "lucide-react";
 import { auth, signOut } from "@/auth";
 import { COPY } from "@/lib/copy";
@@ -33,7 +33,7 @@ type NavItem = {
 const PILOT_ITEMS: NavItem[] = [
   { href: "/dashboard", label: COPY.nav.dashboard, Icon: LayoutGrid },
   { href: "/calendar", label: COPY.nav.calendar, Icon: CalendarDays },
-  { href: "/flights/new", label: COPY.nav.newFlight, Icon: PencilLine },
+  { href: "/flights/new", label: COPY.nav.myFlights, Icon: Plane },
 ];
 
 const ADMIN_ITEMS: { href: string; label: string }[] = [
@@ -123,7 +123,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
               <button
                 type="submit"
                 aria-label={COPY.nav.signOut}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-sm font-medium text-text-muted shadow-xs transition-colors hover:border-border-strong hover:bg-surface-soft hover:text-danger focus:outline-none"
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-sm font-medium text-text-muted shadow-xs transition-colors hover:border-border-strong hover:bg-surface-soft hover:text-danger"
               >
                 <LogOut className="h-4 w-4" aria-hidden="true" />
                 <span className="hidden sm:inline">{COPY.nav.signOut}</span>
@@ -136,12 +136,19 @@ export async function AppShell({ children }: { children: ReactNode }) {
       {/* Page content */}
       <main className="flex-1 pb-24 md:pb-0">{children}</main>
 
-      {/* Mobile bottom nav — pilot items only */}
+      {/* Mobile bottom nav — pilot items, plus "Admin" entry for admins.
+          Admins get a 4th tab that lands on /admin; from there the overview
+          page's inline links reach every admin sub-route. Without this,
+          admins have no navigation chrome on mobile at all. */}
       <nav
         aria-label="Navigation principale"
         className="fixed inset-x-0 bottom-0 z-20 border-t border-border-subtle bg-surface-elevated/95 backdrop-blur md:hidden"
       >
-        <div className="mx-auto grid max-w-md grid-cols-3 gap-0.5 px-1 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1.5">
+        <div
+          className={`mx-auto grid max-w-md gap-0.5 px-1 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1.5 ${
+            isAdmin ? "grid-cols-4" : "grid-cols-3"
+          }`}
+        >
           {PILOT_ITEMS.map((item) => {
             const Icon = item.Icon;
             return (
@@ -155,6 +162,15 @@ export async function AppShell({ children }: { children: ReactNode }) {
               </Link>
             );
           })}
+          {isAdmin && (
+            <Link
+              href="/admin"
+              className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[0.65rem] font-medium text-text-muted transition-colors hover:bg-surface-sunken hover:text-brand"
+            >
+              <Shield className="h-5 w-5" aria-hidden="true" />
+              <span className="text-center leading-tight">{COPY.nav.admin}</span>
+            </Link>
+          )}
         </div>
       </nav>
     </div>

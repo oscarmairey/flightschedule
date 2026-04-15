@@ -9,16 +9,10 @@ import { CheckCircle2, ArrowRight } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
-import {
-  formatHHMM,
-  balanceTier,
-  BALANCE_TIER_FG_CLASSES,
-  BALANCE_TIER_LABELS,
-} from "@/lib/duration";
 import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { AppShell } from "@/components/AppShell";
+import { HeroBalance } from "@/components/HeroBalance";
 
 export default async function CheckoutSuccessPage() {
   const session = await requireSession();
@@ -27,8 +21,6 @@ export default async function CheckoutSuccessPage() {
     select: { hdvBalanceMin: true },
   });
   const balance = user?.hdvBalanceMin ?? 0;
-  const tier = balanceTier(balance);
-  const tierFg = BALANCE_TIER_FG_CLASSES[tier];
 
   return (
     <AppShell>
@@ -44,18 +36,11 @@ export default async function CheckoutSuccessPage() {
         </p>
 
         <Card tone="brand" className="mt-8 p-7">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-brand-soft-fg/80">
-            {COPY.dashboard.balanceLabel}
-          </p>
-          <p
-            className={`font-display tabular mt-2 text-6xl font-semibold leading-none tracking-tight ${tierFg}`}
-          >
-            {formatHHMM(balance)}
-          </p>
-          <Badge tier={tier} className="mt-4">
-            <span aria-hidden="true">●</span>
-            {BALANCE_TIER_LABELS[tier]}
-          </Badge>
+          <HeroBalance
+            balanceMin={balance}
+            label={COPY.dashboard.balanceLabel}
+            size="lg"
+          />
         </Card>
 
         <p className="mt-6 text-xs leading-relaxed text-text-subtle">

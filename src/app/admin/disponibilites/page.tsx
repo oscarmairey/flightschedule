@@ -20,15 +20,26 @@ import {
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
-import { DAY_LABELS_FR, formatDateFR } from "@/lib/format";
+import {
+  DAY_LABELS_FR,
+  formatDateFR,
+  startOfParisWeek,
+  shiftParisWeek,
+  parisWeekParam,
+  formatParisWeekRange,
+  parseWeekParam,
+} from "@/lib/format";
 import { formatHHMM } from "@/lib/duration";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { Label } from "@/components/ui/Label";
 import { Alert } from "@/components/ui/Alert";
+import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { AppShell } from "@/components/AppShell";
 import { WeekCalendar } from "@/components/calendar/WeekCalendar";
+import { resolveBanner } from "@/lib/banners";
 import { adminCancelReservation } from "@/app/calendar/actions";
 import {
   createRecurringException,
@@ -39,51 +50,6 @@ import {
 } from "./actions";
 
 const TZ = "Europe/Paris";
-
-function startOfParisWeek(d: Date): Date {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ,
-    weekday: "short",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const parts = fmt.formatToParts(d);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  const weekday = get("weekday");
-  const DOW: Record<string, number> = {
-    Mon: 0,
-    Tue: 1,
-    Wed: 2,
-    Thu: 3,
-    Fri: 4,
-    Sat: 5,
-    Sun: 6,
-  };
-  const diff = DOW[weekday] ?? 0;
-  const ymd = `${get("year")}-${get("month")}-${get("day")}`;
-  const monday = new Date(`${ymd}T00:00:00+02:00`);
-  monday.setUTCDate(monday.getUTCDate() - diff);
-  return monday;
-}
-
-function shiftWeek(weekStart: Date, weeks: number): Date {
-  return new Date(weekStart.getTime() + weeks * 7 * 24 * 60 * 60 * 1000);
-}
-
-function fmtWeekStartParam(d: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
-}
-
-function fmtWeekRangeFR(start: Date): string {
-  const end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
-  return `${formatDateFR(start)} – ${formatDateFR(end)}`;
-}
 
 function fmtMinutes(m: number): string {
   const h = Math.floor(m / 60);
@@ -108,10 +74,7 @@ export default async function AdminDisponibilitesPage({
   const sp = await searchParams;
 
   const now = new Date();
-  const weekStart =
-    sp.week && /^\d{4}-\d{2}-\d{2}$/.test(sp.week)
-      ? startOfParisWeek(new Date(`${sp.week}T12:00:00+02:00`))
-      : startOfParisWeek(now);
+  const weekStart = parseWeekParam(sp.week) ?? startOfParisWeek(now);
 
   const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -138,33 +101,28 @@ export default async function AdminDisponibilitesPage({
     }),
   ]);
 
-  const banner =
-    sp.cancelled === "1"
-      ? { tone: "success" as const, msg: "Réservation annulée." }
-      : sp.created === "1"
-        ? { tone: "success" as const, msg: "Indisponibilité créée." }
-        : sp.deleted === "1"
-          ? { tone: "success" as const, msg: "Indisponibilité supprimée." }
-          : sp.error === "locked"
-            ? {
-                tone: "error" as const,
-                msg: "Réservation verrouillée par un vol existant.",
-              }
-            : sp.error === "auto_created"
-              ? {
-                  tone: "error" as const,
-                  msg: "Cette réservation a été créée automatiquement par un vol et ne peut pas être annulée.",
-                }
-              : sp.error === "conflicts"
-                ? {
-                    tone: "error" as const,
-                    msg: `${sp.count ?? "?"} réservation(s) confirmée(s) en conflit${sp.date ? ` le ${sp.date}` : ""}. Annulez-les d'abord.`,
-                  }
-                : sp.error === "bad_range"
-                  ? { tone: "error" as const, msg: "Plage horaire invalide." }
-                  : sp.error === "invalid"
-                    ? { tone: "error" as const, msg: COPY.errors.invalidInput }
-                    : null;
+  const banner = resolveBanner(sp, {
+    cancelled: { tone: "success", msg: "Réservation annulée." },
+    created: { tone: "success", msg: "Indisponibilité créée." },
+    deleted: { tone: "success", msg: "Indisponibilité supprimée." },
+    "error:locked": {
+      tone: "error",
+      msg: "Réservation verrouillée par un vol existant.",
+    },
+    "error:auto_created": {
+      tone: "error",
+      msg: "Cette réservation a été créée automatiquement par un vol et ne peut pas être annulée.",
+    },
+    "error:conflicts": {
+      tone: "error",
+      msg: (sp) =>
+        `${sp.count ?? "?"} réservation(s) confirmée(s) en conflit${
+          sp.date ? ` le ${sp.date}` : ""
+        }. Annulez-les d'abord.`,
+    },
+    "error:bad_range": { tone: "error", msg: "Plage horaire invalide." },
+    "error:invalid": { tone: "error", msg: COPY.errors.invalidInput },
+  });
 
   const buildSlotHref = () => "#"; // grid is read-only on the admin page
 
@@ -177,7 +135,7 @@ export default async function AdminDisponibilitesPage({
             {COPY.nav.adminDisponibilites}
           </p>
           <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
-            Disponibilités de l'appareil
+            Disponibilités de l&apos;appareil
           </h1>
           <p className="mt-3 max-w-2xl text-base text-text-muted">
             Définissez d&apos;abord les <strong>périodes d&apos;ouverture</strong>{" "}
@@ -199,11 +157,11 @@ export default async function AdminDisponibilitesPage({
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <h2 className="font-display text-2xl font-semibold tracking-tight text-text-strong">
               <CalendarRange className="mr-2 inline h-5 w-5" aria-hidden="true" />
-              {fmtWeekRangeFR(weekStart)}
+              {formatParisWeekRange(weekStart)}
             </h2>
             <div className="flex items-center gap-2">
               <Link
-                href={`/admin/disponibilites?week=${fmtWeekStartParam(shiftWeek(weekStart, -1))}`}
+                href={`/admin/disponibilites?week=${parisWeekParam(shiftParisWeek(weekStart, -1))}`}
               >
                 <Button variant="secondary" size="sm" aria-label="Semaine précédente">
                   <ChevronLeft className="h-4 w-4" aria-hidden="true" />
@@ -211,14 +169,14 @@ export default async function AdminDisponibilitesPage({
                 </Button>
               </Link>
               <Link
-                href={`/admin/disponibilites?week=${fmtWeekStartParam(startOfParisWeek(now))}`}
+                href={`/admin/disponibilites?week=${parisWeekParam(startOfParisWeek(now))}`}
               >
                 <Button variant="secondary" size="sm">
                   Aujourd&apos;hui
                 </Button>
               </Link>
               <Link
-                href={`/admin/disponibilites?week=${fmtWeekStartParam(shiftWeek(weekStart, 1))}`}
+                href={`/admin/disponibilites?week=${parisWeekParam(shiftParisWeek(weekStart, 1))}`}
               >
                 <Button variant="secondary" size="sm" aria-label="Semaine suivante">
                   <span className="hidden sm:inline">Suivante</span>
@@ -287,16 +245,27 @@ export default async function AdminDisponibilitesPage({
                       </p>
                     </div>
                     {!r.autoCreatedFromFlight && (
-                      <form action={adminCancelReservation}>
-                        <input
-                          type="hidden"
-                          name="reservationId"
-                          value={r.id}
-                        />
-                        <Button type="submit" variant="danger" size="sm">
-                          Annuler
-                        </Button>
-                      </form>
+                      <ConfirmButton
+                        formAction={adminCancelReservation}
+                        hidden={{ reservationId: r.id }}
+                        triggerLabel="Annuler"
+                        triggerVariant="danger"
+                        triggerSize="sm"
+                        title="Annuler cette réservation ?"
+                        body={
+                          <>
+                            La réservation de{" "}
+                            <span className="font-semibold text-text">
+                              {r.user.name}
+                            </span>{" "}
+                            ({formatDateFR(r.startsAt)}) sera annulée. En
+                            tant qu&apos;administrateur, la règle des 24 h
+                            ne s&apos;applique pas. Le créneau redeviendra
+                            libre.
+                          </>
+                        }
+                        confirmLabel="Annuler la réservation"
+                      />
                     )}
                   </li>
                 ))}
@@ -382,16 +351,26 @@ export default async function AdminDisponibilitesPage({
                       </p>
                     )}
                   </div>
-                  <form action={deleteOpenPeriod}>
-                    <input type="hidden" name="id" value={p.id} />
-                    <button
-                      type="submit"
-                      aria-label="Supprimer cette période d'ouverture"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-text-subtle transition-colors hover:bg-danger-soft hover:text-danger"
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  </form>
+                  <ConfirmButton
+                    formAction={deleteOpenPeriod}
+                    hidden={{ id: p.id }}
+                    triggerLabel={<Trash2 className="h-4 w-4" aria-hidden="true" />}
+                    triggerIconOnly
+                    triggerAriaLabel="Supprimer cette période d'ouverture"
+                    title="Supprimer cette période d'ouverture ?"
+                    body={
+                      <>
+                        La plage{" "}
+                        <span className="font-semibold text-text">
+                          {formatDateFR(p.startDate)} → {formatDateFR(p.endDate)}
+                        </span>{" "}
+                        sera supprimée. Si plus aucune période n&apos;est
+                        définie, l&apos;avion redevient ouvert toute
+                        l&apos;année.
+                      </>
+                    }
+                    confirmLabel="Supprimer"
+                  />
                 </li>
               ))}
             </ul>
@@ -416,18 +395,13 @@ export default async function AdminDisponibilitesPage({
               <Label htmlFor="dayOfWeek" required>
                 Jour
               </Label>
-              <select
-                id="dayOfWeek"
-                name="dayOfWeek"
-                required
-                className="block w-full min-h-11 rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand focus:outline-none"
-              >
+              <Select id="dayOfWeek" name="dayOfWeek" required>
                 {DAY_LABELS_FR.map((label, idx) => (
                   <option key={idx} value={idx}>
                     {label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="rec-start" required>
@@ -493,16 +467,26 @@ export default async function AdminDisponibilitesPage({
                       </p>
                     )}
                   </div>
-                  <form action={deleteException}>
-                    <input type="hidden" name="id" value={b.id} />
-                    <button
-                      type="submit"
-                      aria-label="Supprimer cette indisponibilité"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-text-subtle transition-colors hover:bg-danger-soft hover:text-danger"
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  </form>
+                  <ConfirmButton
+                    formAction={deleteException}
+                    hidden={{ id: b.id }}
+                    triggerLabel={<Trash2 className="h-4 w-4" aria-hidden="true" />}
+                    triggerIconOnly
+                    triggerAriaLabel="Supprimer cette indisponibilité"
+                    title="Supprimer cette indisponibilité ?"
+                    body={
+                      <>
+                        L&apos;indisponibilité récurrente{" "}
+                        <span className="font-semibold text-text">
+                          {DAY_LABELS_FR[b.dayOfWeek ?? 0]}{" "}
+                          {fmtMinutes(b.startMinutes)}–{fmtMinutes(b.endMinutes)}
+                        </span>{" "}
+                        sera supprimée. Les créneaux concernés redeviendront
+                        réservables.
+                      </>
+                    }
+                    confirmLabel="Supprimer"
+                  />
                 </li>
               ))}
             </ul>
@@ -598,16 +582,25 @@ export default async function AdminDisponibilitesPage({
                       </p>
                     )}
                   </div>
-                  <form action={deleteException}>
-                    <input type="hidden" name="id" value={b.id} />
-                    <button
-                      type="submit"
-                      aria-label="Supprimer cette exception"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-text-subtle transition-colors hover:bg-danger-soft hover:text-danger"
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  </form>
+                  <ConfirmButton
+                    formAction={deleteException}
+                    hidden={{ id: b.id }}
+                    triggerLabel={<Trash2 className="h-4 w-4" aria-hidden="true" />}
+                    triggerIconOnly
+                    triggerAriaLabel="Supprimer cette exception"
+                    title="Supprimer cette exception ?"
+                    body={
+                      <>
+                        L&apos;exception du{" "}
+                        <span className="font-semibold text-text">
+                          {formatDateFR(b.specificDate)}{" "}
+                          {fmtMinutes(b.startMinutes)}–{fmtMinutes(b.endMinutes)}
+                        </span>{" "}
+                        sera supprimée.
+                      </>
+                    }
+                    confirmLabel="Supprimer"
+                  />
                 </li>
               ))}
             </ul>

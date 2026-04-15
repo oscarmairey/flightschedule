@@ -159,3 +159,88 @@ export function parisLocalDateString(d: Date): string {
   });
   return fmt.format(d); // YYYY-MM-DD
 }
+
+// ────────────────────────────────────────────────────────────────────
+// Week-navigation helpers for the Mon→Sun calendar grid.
+//
+// Extracted in Pass 3.2 from /calendar and /admin/disponibilites where
+// they were duplicated verbatim with a DST-unsafe hard-coded "+02:00"
+// string. The shared version routes through `parisLocalToUtc`, which
+// derives the offset from Intl at the target instant — correct for
+// CEST (UTC+2) and CET (UTC+1) alike.
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * Paris-local Monday 00:00 for the week containing the given instant,
+ * returned as a UTC Date.
+ */
+export function startOfParisWeek(d: Date): Date {
+  // Which weekday (0=Mon…6=Sun) is `d` in Paris?
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ,
+    weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = fmt.formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const weekday = get("weekday");
+  const DOW: Record<string, number> = {
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6,
+  };
+  const diff = DOW[weekday] ?? 0;
+
+  // Paris-local midnight of the current day, then shift back by `diff`
+  // calendar days to land on Monday. Using parisLocalToUtc for both
+  // steps means DST transitions are handled by Intl, not by a
+  // hard-coded offset.
+  const ymd = `${get("year")}-${get("month")}-${get("day")}`;
+  const todayMidnight = parisLocalToUtc(ymd, 0, 0);
+  const monday = new Date(todayMidnight.getTime() - diff * 24 * 60 * 60 * 1000);
+
+  // Re-snap to Paris-local midnight so the result is always exactly
+  // 00:00 Paris-local of the target Monday, even if the subtraction
+  // crossed a DST boundary (spring-forward means the raw −24h math
+  // lands at 01:00 the day before in Paris-local).
+  const mondayYmd = parisLocalDateString(monday);
+  return parisLocalToUtc(mondayYmd, 0, 0);
+}
+
+/** Shift a Paris-anchored week-start by N weeks. */
+export function shiftParisWeek(weekStart: Date, weeks: number): Date {
+  const shifted = new Date(
+    weekStart.getTime() + weeks * 7 * 24 * 60 * 60 * 1000,
+  );
+  // Re-snap to Paris midnight for DST safety.
+  return startOfParisWeek(shifted);
+}
+
+/** Format a Paris-local date as YYYY-MM-DD for ?week=… URLs. */
+export function parisWeekParam(d: Date): string {
+  return parisLocalDateString(d);
+}
+
+/** "DD/MM/YYYY – DD/MM/YYYY" for a Paris-anchored Mon→Sun week. */
+export function formatParisWeekRange(weekStart: Date): string {
+  const end = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+  return `${formatDateFR(weekStart)} – ${formatDateFR(end)}`;
+}
+
+/**
+ * Parse a ?week=YYYY-MM-DD param (validated) into a Paris-anchored
+ * Monday. Returns `null` on malformed input so callers can fall back
+ * to "current week".
+ */
+export function parseWeekParam(raw: string | undefined): Date | null {
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  // Noon to dodge DST transition edge cases when the raw date is the
+  // day of spring-forward or fall-back.
+  return startOfParisWeek(parisLocalToUtc(raw, 12, 0));
+}

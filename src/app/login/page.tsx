@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import Image from "next/image";
+import { AuthError } from "next-auth";
 import { signIn, auth } from "@/auth";
-import { Button } from "@/components/ui/Button";
+import { COPY } from "@/lib/copy";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { Alert } from "@/components/ui/Alert";
@@ -19,9 +21,9 @@ export default async function LoginPage({
   const params = await searchParams;
   const errorMessage =
     params.error === "CredentialsSignin"
-      ? "Identifiants incorrects."
+      ? COPY.auth.invalidCredentials
       : params.error
-        ? "Erreur de connexion. Réessayez."
+        ? COPY.auth.genericError
         : null;
 
   return (
@@ -50,7 +52,7 @@ export default async function LoginPage({
             FlightSchedule
           </h1>
           <p className="mt-3 max-w-md text-sm font-medium uppercase tracking-[0.22em] text-text-muted">
-            Le planning de votre avion, simplement.
+            {COPY.brand.tagline}
           </p>
           <p className="mt-6 max-w-md text-base leading-relaxed text-text-muted">
             L&apos;app pour gérer simplement le planning de réservation de votre
@@ -64,27 +66,40 @@ export default async function LoginPage({
           <div className="rounded-2xl border border-border bg-surface-elevated/95 p-8 shadow-lg backdrop-blur">
             <div className="mb-6">
               <h2 className="text-xl font-semibold tracking-tight text-text-strong">
-                Connexion
+                {COPY.auth.loginTitle}
               </h2>
               <p className="mt-1 text-sm text-text-muted">
-                Accès réservé aux pilotes autorisés.
+                {COPY.auth.loginRestricted}
               </p>
             </div>
 
             <form
               action={async (formData) => {
                 "use server";
-                await signIn("credentials", {
-                  email: formData.get("email"),
-                  password: formData.get("password"),
-                  redirectTo: "/dashboard",
-                });
+                // Auth.js v5's `signIn()` with `redirectTo` throws in both
+                // branches: NEXT_REDIRECT on success (that's how Next's
+                // `redirect()` works), and `AuthError` (CredentialsSignin,
+                // etc.) on failure. We MUST let NEXT_REDIRECT propagate,
+                // and MUST catch AuthError so it becomes a ?error=... query
+                // param instead of a runtime error overlay.
+                try {
+                  await signIn("credentials", {
+                    email: formData.get("email"),
+                    password: formData.get("password"),
+                    redirectTo: "/dashboard",
+                  });
+                } catch (error) {
+                  if (error instanceof AuthError) {
+                    redirect(`/login?error=${error.type}`);
+                  }
+                  throw error;
+                }
               }}
               className="space-y-5"
             >
               <div className="space-y-2">
                 <Label htmlFor="email" required>
-                  Email
+                  {COPY.auth.emailLabel}
                 </Label>
                 <Input
                   id="email"
@@ -98,7 +113,7 @@ export default async function LoginPage({
 
               <div className="space-y-2">
                 <Label htmlFor="password" required>
-                  Mot de passe
+                  {COPY.auth.passwordLabel}
                 </Label>
                 <Input
                   id="password"
@@ -111,9 +126,9 @@ export default async function LoginPage({
 
               {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
 
-              <Button type="submit" fullWidth size="lg">
-                Se connecter
-              </Button>
+              <SubmitButton fullWidth size="lg" pendingLabel="Connexion…">
+                {COPY.auth.signIn}
+              </SubmitButton>
             </form>
           </div>
 

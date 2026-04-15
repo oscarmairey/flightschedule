@@ -22,7 +22,7 @@ import { PasswordSchema } from "@/lib/validation";
 import { COPY } from "@/lib/copy";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
-import { Button } from "@/components/ui/Button";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Alert } from "@/components/ui/Alert";
 
 async function setupPasswordAction(formData: FormData) {
@@ -157,9 +157,9 @@ export default async function SetupPasswordPage({
             et un chiffre.
           </p>
 
-          <Button type="submit" fullWidth size="lg">
+          <SubmitButton fullWidth size="lg" pendingLabel="Enregistrement…">
             {COPY.auth.setupSubmit}
-          </Button>
+          </SubmitButton>
         </form>
       </div>
     </main>

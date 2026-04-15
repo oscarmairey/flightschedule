@@ -136,6 +136,43 @@ export const BALANCE_TIER_LABELS: Record<BalanceTier, string> = {
 };
 
 // ────────────────────────────────────────────────────────────────────
+// Tachymeter (hour-meter) readings — stored as hundredths of an hour
+// to keep the DB integer-only per rule #1.
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * Parse a user-supplied tach reading like "1234.56" into hundredths of
+ * an hour (e.g. 123456). Accepts comma or dot as the decimal separator,
+ * allows 0–4 decimal digits (truncated to 2), and rejects negatives.
+ * Returns null on invalid input so callers can surface a French error.
+ */
+export function parseTachyToHundredths(input: string): number | null {
+  if (typeof input !== "string") return null;
+  const trimmed = input.trim().replace(",", ".");
+  if (trimmed === "") return null;
+  if (!/^\d{1,6}(\.\d{1,2})?$/.test(trimmed)) return null;
+  const [whole, frac = ""] = trimmed.split(".");
+  const padded = (frac + "00").slice(0, 2);
+  const hundredths = Number(whole) * 100 + Number(padded);
+  if (!Number.isFinite(hundredths) || hundredths < 0) return null;
+  return hundredths;
+}
+
+/**
+ * Format an Int number of hundredths-of-an-hour back to the user-facing
+ * "XXXX.XX" tach reading string. Returns "—" for null/undefined.
+ */
+export function formatTachy(hundredths: number | null | undefined): string {
+  if (hundredths === null || hundredths === undefined) return "—";
+  if (!Number.isFinite(hundredths)) return "—";
+  const whole = Math.floor(hundredths / 100);
+  const frac = Math.abs(hundredths % 100)
+    .toString()
+    .padStart(2, "0");
+  return `${whole}.${frac}`;
+}
+
+// ────────────────────────────────────────────────────────────────────
 // Engine bloc OFF / bloc ON parsing — V2 flight HDV computation
 // ────────────────────────────────────────────────────────────────────
 

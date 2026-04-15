@@ -15,7 +15,7 @@ const VARIANT_CLASSES: Record<Variant, string> = {
   secondary:
     "bg-surface-elevated text-text border border-border hover:border-border-strong hover:bg-surface-soft shadow-xs",
   danger:
-    "bg-danger text-white hover:opacity-90 shadow-xs",
+    "bg-danger text-text-on-danger hover:bg-danger-hover shadow-xs",
   ghost:
     "bg-transparent text-text-muted hover:bg-surface-sunken hover:text-text",
   link:
@@ -43,8 +43,11 @@ export function Button({
   children,
   ...rest
 }: ButtonProps) {
+  // Focus ring is drawn by the global `:focus-visible` rule in globals.css
+  // (2px brand outline with offset). No `focus:outline-none` here or
+  // keyboard users lose the indicator entirely.
   const base =
-    "inline-flex items-center justify-center gap-2 font-medium tracking-tight transition-all duration-150 ease-out focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none";
+    "inline-flex items-center justify-center gap-2 font-medium tracking-tight transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none";
   return (
     <button
       {...rest}

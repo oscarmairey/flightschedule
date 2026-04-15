@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/Label";
 import { Badge } from "@/components/ui/Badge";
 import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
+import { resolveBanner } from "@/lib/banners";
 import { validateBankTransfer, rejectBankTransfer } from "./actions";
 
 export default async function AdminVirementsPage({
@@ -56,14 +57,11 @@ export default async function AdminVirementsPage({
     }),
   ]);
 
-  const banner =
-    sp.validated === "1"
-      ? { tone: "success" as const, msg: "Virement validé — solde crédité." }
-      : sp.rejected === "1"
-        ? { tone: "success" as const, msg: "Virement refusé." }
-        : sp.error === "invalid"
-          ? { tone: "error" as const, msg: COPY.errors.invalidInput }
-          : null;
+  const banner = resolveBanner(sp, {
+    validated: { tone: "success", msg: "Virement validé — solde crédité." },
+    rejected: { tone: "success", msg: "Virement refusé." },
+    "error:invalid": { tone: "error", msg: COPY.errors.invalidInput },
+  });
 
   return (
     <AppShell>
@@ -190,7 +188,7 @@ export default async function AdminVirementsPage({
               </h2>
               <p className="text-xs text-text-subtle">
                 30 derniers jours · {history.length} virement
-                {history.length > 1 ? "s" : ""}
+                {history.length !== 1 ? "s" : ""}
               </p>
             </div>
             <ul className="divide-y divide-border-subtle border-y border-border-subtle">

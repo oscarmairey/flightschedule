@@ -139,7 +139,7 @@ export function PhotoUpload({ name }: { name: string }) {
         </p>
         <p className="text-xs text-text-subtle">
           JPEG, PNG ou HEIC · Max 10 Mo par fichier · {slotsLeft} place
-          {slotsLeft > 1 ? "s" : ""} restante{slotsLeft > 1 ? "s" : ""}
+          {slotsLeft !== 1 ? "s" : ""} restante{slotsLeft !== 1 ? "s" : ""}
         </p>
       </label>
 

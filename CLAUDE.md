@@ -130,12 +130,16 @@ V2 — the FLIGHT is the unit of HDV consumption. A flight insert is one seriali
 - A `specific_date` exception takes precedence over any `day_of_week` recurring exception for that date.
 - A booking is rejected iff any applicable exception overlaps the requested window.
 
-### 9. Flights are immutable on insert (V2)
+### 9. Flights are immutable on insert — except via the admin edit path
 
-- A flight is inserted into the database the moment the pilot submits the form. There is no `pending` → `validated` lifecycle, no admin queue, no validation step, no edit path.
+- A flight is inserted into the database the moment the pilot submits the form. There is no `pending` → `validated` lifecycle, no admin queue, no validation step. **Pilots cannot edit their own flights.**
 - **The flight insert and FLIGHT_DEBIT transaction run atomically in one serializable Postgres transaction** (rule #3b). Engine bloc OFF / bloc ON times are required and define the duration. `allowNegative: true` — overdrafts are tolerated and reconciled off-platform.
-- If an HDV correction is genuinely needed beyond the flight-time debit (e.g., wire-transfer top-up, paper-logbook discrepancy), the admin uses the existing `ADMIN_ADJUSTMENT` Transaction path on `/admin/pilots/[id]` with a clear reason.
-- Flights themselves cannot be cancelled, edited, or deleted from the UI.
+- If an HDV correction is genuinely needed beyond the flight-time debit (e.g., wire-transfer top-up, paper-logbook discrepancy), the admin uses the `ADMIN_ADJUSTMENT` Transaction path on `/admin/pilots/[id]` with a clear reason.
+- **Admin edit path (`/admin/flights/[id]/edit`)** — admins can correct any flight field (date, airports, bloc OFF / bloc ON, tach, landings, remarks). The action runs in one serializable transaction containing: re-fetch flight under lock → parse new engine times → overlap check (excluding self) → `flight.update(...)` → if duration changed, append a compensating `ADMIN_ADJUSTMENT` transaction with `amountMin = oldDurationMin - newDurationMin`, `flightId = <flight>`, `performedById = <admin>`, `reference = "Correction vol …"`, `allowNegative: true`.
+  - **Never mutate the original `FLIGHT_DEBIT` row.** That would invalidate the `balanceAfterMin` snapshot of every later transaction in the ledger and break point-in-time reconstruction (rule #2). The compensating ADMIN_ADJUSTMENT preserves history and keeps `SUM(transactions) = User.hdvBalanceMin` by construction.
+  - The Flight row's `actualDurationMin` is the source of truth for the flight; the original FLIGHT_DEBIT row remains as a historical artifact tied to the same `flightId`. Admin audit reads can group "ledger entries about flight X" via `Transaction.flightId`.
+  - Photos cannot be edited from this surface (read-only display) — out of scope for the initial admin edit pass.
+- Flights still cannot be cancelled or deleted from the UI.
 
 ### 10. Soft delete users only
 
@@ -172,7 +176,7 @@ V2 — the FLIGHT is the unit of HDV consumption. A flight insert is one seriali
 ## Routes Map (V2)
 
 Pilot: `/dashboard` (balance + Forfaits HDV + Historique des mouvements), `/calendar` (Mes réservations), `/flights/new`, `/flights`, `/checkout/{success,cancel}`
-Admin: `/admin`, `/admin/pilots`, `/admin/pilots/[id]`, `/admin/disponibilites` (merged calendar + indisponibilités), `/admin/tarifs` (Stripe Package CRUD)
+Admin: `/admin`, `/admin/pilots`, `/admin/pilots/[id]`, `/admin/flights/[id]/edit` (correct a single flight, cascades HDV via compensating ADMIN_ADJUSTMENT — see rule #9), `/admin/disponibilites` (merged calendar + indisponibilités), `/admin/tarifs` (Stripe Package CRUD)
 API: `/api/webhooks/stripe`, `/api/upload/presign`
 Auth: `/login`, `/setup-password`
 
@@ -214,6 +218,7 @@ Before merging any code that touches HDV, reservations, or flights, verify:
 - [ ] Server-side enforcement of admin-only operations
 - [ ] Auto-created reservations cannot be cancelled
 - [ ] Photos referenced by R2 keys, not transited through the app
+- [ ] Admin flight edit appends a compensating ADMIN_ADJUSTMENT row — never mutates the original FLIGHT_DEBIT
 
 ---
 

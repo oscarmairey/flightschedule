@@ -7,7 +7,30 @@ const nextConfig: NextConfig = {
   // runner image — no node_modules in the final stage.
   output: "standalone",
 
+  // Next.js 15+ blocks cross-origin requests to dev-only resources
+  // (HMR websocket, `/__nextjs_original-stack-frames`, etc.) from any
+  // host not on this allowlist. The dev server is accessed from the
+  // VPS public IP (http://89.167.7.195:3001), not localhost, so it
+  // needs to be allowlisted or HMR silently stops working.
+  //
+  // Production is unaffected — this only matters for `next dev`.
+  allowedDevOrigins: ["89.167.7.195"],
+
   async headers() {
+    // These headers are production-only. In `next dev`, `upgrade-insecure-requests`
+    // in the CSP and `Strict-Transport-Security` both force the browser to
+    // rewrite every subresource to https:// — the dev server speaks http:// only,
+    // so CSS, fonts, and next/image all 404 and the page renders as bare HTML.
+    // Strict-Transport-Security also pins localhost to https in the browser's
+    // HSTS cache for a year, so if you hit the dev server once with these
+    // headers on, you have to clear the pin via chrome://net-internals/#hsts.
+    //
+    // In production (Caddy + Cloudflare), the chain is already https end-to-end
+    // and these headers are load-bearing for the security posture.
+    if (process.env.NODE_ENV !== "production") {
+      return [];
+    }
+
     return [
       {
         source: "/(.*)",

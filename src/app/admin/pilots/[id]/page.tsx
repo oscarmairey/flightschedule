@@ -2,27 +2,26 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, PencilLine } from "lucide-react";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
-import { formatDateTimeFR } from "@/lib/format";
-import {
-  formatHHMM,
-  formatHHMMSigned,
-  balanceTier,
-  BALANCE_TIER_FG_CLASSES,
-  BALANCE_TIER_LABELS,
-} from "@/lib/duration";
+import { formatDateFR, formatDateTimeFR } from "@/lib/format";
+import { formatHHMM, formatHHMMSigned } from "@/lib/duration";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { Label } from "@/components/ui/Label";
 import { Badge } from "@/components/ui/Badge";
 import { Alert } from "@/components/ui/Alert";
+import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { AppShell } from "@/components/AppShell";
+import { HeroBalance } from "@/components/HeroBalance";
+import { resolveBanner } from "@/lib/banners";
 import {
   adjustHdv,
+  changePilotEmail,
   promotePilotToAdmin,
   resetPilotPassword,
   togglePilotActive,
@@ -39,6 +38,8 @@ export default async function PilotDetailPage({
     pwreset?: string;
     toggled?: string;
     promoted?: string;
+    emailchanged?: string;
+    flightedited?: string;
     error?: string;
   }>;
 }) {
@@ -68,35 +69,59 @@ export default async function PilotDetailPage({
     take: 10,
   });
 
-  const banner =
-    sp.welcome === "1"
-      ? {
-          tone: "success" as const,
-          msg: "Compte créé. Un email avec le mot de passe temporaire a été envoyé.",
-        }
-      : sp.adjusted === "1"
-        ? { tone: "success" as const, msg: "Solde HDV mis à jour." }
-        : sp.pwreset === "1"
-          ? { tone: "success" as const, msg: "Mot de passe réinitialisé. Email envoyé." }
-          : sp.promoted === "1"
-            ? { tone: "success" as const, msg: "Pilote promu administrateur." }
-            : sp.toggled === "1"
-              ? {
-                  tone: "success" as const,
-                  msg: pilot.isActive ? "Compte réactivé." : "Compte désactivé.",
-                }
-              : sp.error === "bad_amount"
-              ? {
-                  tone: "error" as const,
-                  msg: "Durée invalide. Format attendu : 1h30 ou 90.",
-                }
-              : sp.error === "invalid"
-                ? { tone: "error" as const, msg: COPY.errors.invalidInput }
-                : null;
+  // Latest 10 flights for this pilot — newest first. The admin uses this
+  // section as the entry point to /admin/flights/[id]/edit to correct
+  // bloc OFF / bloc ON, airports, etc. The compensating ADMIN_ADJUSTMENT
+  // row that the edit produces appears further down in "20 derniers
+  // mouvements" so the operator sees the ledger impact in one scroll.
+  const recentFlights = await prisma.flight.findMany({
+    where: { userId: pilot.id },
+    orderBy: { date: "desc" },
+    take: 10,
+    select: {
+      id: true,
+      date: true,
+      depAirport: true,
+      arrAirport: true,
+      actualDurationMin: true,
+      engineStart: true,
+      engineStop: true,
+    },
+  });
+
+  const banner = resolveBanner(sp, {
+    welcome: {
+      tone: "success",
+      msg: "Compte créé. Un email avec le mot de passe temporaire a été envoyé.",
+    },
+    adjusted: { tone: "success", msg: "Solde HDV mis à jour." },
+    pwreset: { tone: "success", msg: "Mot de passe réinitialisé. Email envoyé." },
+    promoted: { tone: "success", msg: "Pilote promu administrateur." },
+    emailchanged: { tone: "success", msg: "Adresse email mise à jour." },
+    flightedited: {
+      tone: "success",
+      msg: "Vol corrigé. Le solde HDV a été ajusté en conséquence.",
+    },
+    toggled: {
+      tone: "success",
+      msg: pilot.isActive ? "Compte réactivé." : "Compte désactivé.",
+    },
+    "error:bad_amount": {
+      tone: "error",
+      msg: "Durée invalide. Format attendu : 1h30 ou 90.",
+    },
+    "error:bad_email": {
+      tone: "error",
+      msg: "Adresse email invalide.",
+    },
+    "error:email_taken": {
+      tone: "error",
+      msg: "Cette adresse email est déjà utilisée par un autre compte.",
+    },
+    "error:invalid": { tone: "error", msg: COPY.errors.invalidInput },
+  });
 
   const isSelf = pilot.id === admin.user.id;
-  const tier = balanceTier(pilot.hdvBalanceMin);
-  const tierFg = BALANCE_TIER_FG_CLASSES[tier];
 
   return (
     <AppShell>
@@ -123,19 +148,12 @@ export default async function PilotDetailPage({
                 {!pilot.isActive && <Badge variant="danger">Inactif</Badge>}
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs font-medium uppercase tracking-[0.12em] text-text-subtle">
-                {COPY.dashboard.balanceLabel}
-              </p>
-              <p
-                className={`font-display tabular mt-1 text-5xl font-semibold tracking-tight ${tierFg}`}
-              >
-                {formatHHMM(pilot.hdvBalanceMin)}
-              </p>
-              <Badge tier={tier} className="mt-2">
-                {BALANCE_TIER_LABELS[tier]}
-              </Badge>
-            </div>
+            <HeroBalance
+              balanceMin={pilot.hdvBalanceMin}
+              label={COPY.dashboard.balanceLabel}
+              size="md"
+              align="right"
+            />
           </div>
         </header>
 
@@ -162,15 +180,10 @@ export default async function PilotDetailPage({
                 <Label htmlFor="sign" required>
                   Sens
                 </Label>
-                <select
-                  id="sign"
-                  name="sign"
-                  required
-                  className="block w-full min-h-11 rounded-md border border-border bg-surface-elevated px-3.5 py-2 text-base text-text shadow-xs focus:border-brand focus:outline-none"
-                >
+                <Select id="sign" name="sign" required>
                   <option value="credit">Crédit (+)</option>
                   <option value="debit">Débit (−)</option>
-                </select>
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="amount" required>
@@ -205,38 +218,119 @@ export default async function PilotDetailPage({
           </form>
         </Card>
 
+        {/* Email change */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Adresse email</CardTitle>
+            <CardDescription>
+              Met à jour l&apos;adresse de connexion du pilote. Le nouveau
+              mot de passe d&apos;accès reste inchangé.
+            </CardDescription>
+          </CardHeader>
+          <form action={changePilotEmail} className="space-y-4">
+            <input type="hidden" name="pilotId" value={pilot.id} />
+            <div className="space-y-1.5">
+              <Label htmlFor="email" required>
+                Email
+              </Label>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                required
+                maxLength={255}
+                defaultValue={pilot.email}
+                className="lowercase"
+              />
+            </div>
+            <Button type="submit" variant="secondary">
+              Mettre à jour l&apos;email
+            </Button>
+          </form>
+        </Card>
+
         {/* Account actions */}
         <Card className="mb-12">
           <CardHeader>
             <CardTitle>Actions sur le compte</CardTitle>
           </CardHeader>
           <div className="flex flex-wrap gap-3">
-            <form action={resetPilotPassword}>
-              <input type="hidden" name="pilotId" value={pilot.id} />
-              <Button type="submit" variant="secondary">
-                Réinitialiser le mot de passe
-              </Button>
-            </form>
+            <ConfirmButton
+              formAction={resetPilotPassword}
+              hidden={{ pilotId: pilot.id }}
+              triggerLabel="Réinitialiser le mot de passe"
+              triggerVariant="secondary"
+              title="Réinitialiser le mot de passe ?"
+              body={
+                <>
+                  Un nouveau mot de passe temporaire sera généré et envoyé
+                  à{" "}
+                  <span className="font-semibold text-text">{pilot.email}</span>
+                  . Le pilote ne pourra plus se connecter avec son ancien
+                  mot de passe.
+                </>
+              }
+              confirmLabel="Réinitialiser"
+              confirmVariant="danger"
+            />
             {!isSelf && pilot.role !== "ADMIN" && (
-              <form action={promotePilotToAdmin}>
-                <input type="hidden" name="pilotId" value={pilot.id} />
-                <Button type="submit" variant="secondary">
-                  Promouvoir administrateur
-                </Button>
-              </form>
+              <ConfirmButton
+                formAction={promotePilotToAdmin}
+                hidden={{ pilotId: pilot.id }}
+                triggerLabel="Promouvoir administrateur"
+                triggerVariant="secondary"
+                title="Promouvoir administrateur ?"
+                body={
+                  <>
+                    <span className="font-semibold text-text">
+                      {pilot.name}
+                    </span>{" "}
+                    aura accès à toutes les fonctions administrateur :
+                    gestion des pilotes, des tarifs, des virements, des
+                    disponibilités. Cette action ne peut être annulée que
+                    par un autre administrateur.
+                  </>
+                }
+                confirmLabel="Promouvoir"
+                confirmVariant="primary"
+              />
             )}
             {!isSelf && (
-              <form action={togglePilotActive}>
-                <input type="hidden" name="pilotId" value={pilot.id} />
-                <Button
-                  type="submit"
-                  variant={pilot.isActive ? "danger" : "secondary"}
-                >
-                  {pilot.isActive
-                    ? "Désactiver le compte"
-                    : "Réactiver le compte"}
-                </Button>
-              </form>
+              <ConfirmButton
+                formAction={togglePilotActive}
+                hidden={{ pilotId: pilot.id }}
+                triggerLabel={
+                  pilot.isActive ? "Désactiver le compte" : "Réactiver le compte"
+                }
+                triggerVariant={pilot.isActive ? "danger" : "secondary"}
+                title={
+                  pilot.isActive
+                    ? "Désactiver ce compte ?"
+                    : "Réactiver ce compte ?"
+                }
+                body={
+                  pilot.isActive ? (
+                    <>
+                      <span className="font-semibold text-text">
+                        {pilot.name}
+                      </span>{" "}
+                      ne pourra plus se connecter. Ses réservations et
+                      historique de vols sont conservés. Vous pouvez
+                      réactiver le compte à tout moment.
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-text">
+                        {pilot.name}
+                      </span>{" "}
+                      pourra à nouveau se connecter et utiliser
+                      l&apos;application.
+                    </>
+                  )
+                }
+                confirmLabel={pilot.isActive ? "Désactiver" : "Réactiver"}
+                confirmVariant={pilot.isActive ? "danger" : "primary"}
+              />
             )}
           </div>
           <p className="mt-4 text-xs text-text-subtle">
@@ -310,6 +404,58 @@ export default async function PilotDetailPage({
             </ul>
           </section>
         )}
+
+        {/* Recent flights — entry point to /admin/flights/[id]/edit */}
+        <section className="mb-12">
+          <div className="mb-4 flex items-baseline justify-between">
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-text-strong">
+              10 derniers vols
+            </h2>
+            <p className="text-xs text-text-subtle">
+              Cliquez sur « Modifier » pour corriger un vol.
+            </p>
+          </div>
+          {recentFlights.length === 0 ? (
+            <Card tone="sunken">
+              <p className="text-sm text-text-muted">
+                Aucun vol enregistré pour ce pilote.
+              </p>
+            </Card>
+          ) : (
+            <ul className="divide-y divide-border-subtle border-y border-border-subtle">
+              {recentFlights.map((f) => (
+                <li
+                  key={f.id}
+                  className="flex flex-wrap items-center justify-between gap-3 py-3.5 text-sm"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-display tabular text-base font-semibold text-text-strong">
+                      {f.depAirport}
+                      <span className="mx-1.5 text-text-subtle">→</span>
+                      {f.arrAirport}
+                    </p>
+                    <p className="mt-0.5 text-xs tabular text-text-subtle">
+                      {formatDateFR(f.date)}
+                      <span className="mx-1.5">·</span>
+                      {f.engineStart} → {f.engineStop}
+                      <span className="mx-1.5">·</span>
+                      <span className="font-semibold text-text">
+                        {formatHHMM(f.actualDurationMin)}
+                      </span>
+                    </p>
+                  </div>
+                  <Link
+                    href={`/admin/flights/${f.id}/edit`}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition-colors hover:text-brand-hover"
+                  >
+                    <PencilLine className="h-4 w-4" aria-hidden="true" />
+                    Modifier
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         {/* Recent transactions */}
         <section>

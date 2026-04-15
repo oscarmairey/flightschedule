@@ -21,12 +21,21 @@ import { z } from "zod";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { isPhotoKeyOwnedBy, headObject, PHOTO_LIMITS } from "@/lib/r2";
-import { parseEngineTimes, EngineTimesError } from "@/lib/duration";
+import {
+  parseEngineTimes,
+  EngineTimesError,
+  parseTachyToHundredths,
+} from "@/lib/duration";
 import { parisLocalDateString } from "@/lib/format";
 import { applyHdvMutation } from "@/lib/hdv";
 import { IcaoSchema } from "@/lib/validation";
 
 const HHMMRequired = z.string().regex(/^\d{1,2}:\d{2}$/, "Format HH:MM attendu");
+const TachyOptional = z
+  .string()
+  .trim()
+  .optional()
+  .transform((v) => (v === "" ? undefined : v));
 
 const SubmitFlightSchema = z.object({
   depAirport: IcaoSchema,
@@ -34,6 +43,8 @@ const SubmitFlightSchema = z.object({
   flightDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date invalide"),
   engineStart: HHMMRequired,
   engineStop: HHMMRequired,
+  tachyStart: TachyOptional,
+  tachyStop: TachyOptional,
   landings: z.coerce.number().int().min(1).max(99),
   remarks: z.string().trim().max(2000).optional(),
 });
@@ -47,6 +58,8 @@ export async function submitFlight(formData: FormData) {
     flightDate: formData.get("flightDate"),
     engineStart: formData.get("engineStart"),
     engineStop: formData.get("engineStop"),
+    tachyStart: formData.get("tachyStart") ?? undefined,
+    tachyStop: formData.get("tachyStop") ?? undefined,
     landings: formData.get("landings"),
     remarks: formData.get("remarks") || undefined,
   });
@@ -56,6 +69,7 @@ export async function submitFlight(formData: FormData) {
 
   // Compute UTC instants and duration from the bloc OFF / bloc ON times.
   let startsAtUtc: Date;
+  let endsAtUtc: Date;
   let actualDurationMin: number;
   try {
     const result = parseEngineTimes(
@@ -64,12 +78,60 @@ export async function submitFlight(formData: FormData) {
       parsed.data.engineStop,
     );
     startsAtUtc = result.startsAtUtc;
+    endsAtUtc = result.endsAtUtc;
     actualDurationMin = result.durationMin;
   } catch (err) {
     if (err instanceof EngineTimesError) {
       redirect(`/flights/new?error=engine&msg=${encodeURIComponent(err.message)}`);
     }
     throw err;
+  }
+
+  // Rule: a flight cannot be registered in the future. Uses a small
+  // tolerance (60 s) so a user who hits "Enregistrer" a split second
+  // before the bloc ON minute elapses isn't rejected.
+  const nowUtc = new Date();
+  if (endsAtUtc.getTime() > nowUtc.getTime() + 60_000) {
+    redirect(
+      `/flights/new?error=engine&msg=${encodeURIComponent(
+        "Un vol ne peut pas être enregistré dans le futur.",
+      )}`,
+    );
+  }
+
+  // Parse optional tach readings. Present iff BOTH start and stop are
+  // supplied; either-both-or-neither so we never store a half-populated
+  // reading. On invalid format, redirect with a French error.
+  let tachyStartHundredths: number | null = null;
+  let tachyStopHundredths: number | null = null;
+  const rawTachStart = parsed.data.tachyStart;
+  const rawTachStop = parsed.data.tachyStop;
+  if (rawTachStart || rawTachStop) {
+    if (!rawTachStart || !rawTachStop) {
+      redirect(
+        `/flights/new?error=engine&msg=${encodeURIComponent(
+          "Renseignez TACHY départ ET arrivée, ou laissez les deux vides.",
+        )}`,
+      );
+    }
+    const ts = parseTachyToHundredths(rawTachStart);
+    const te = parseTachyToHundredths(rawTachStop);
+    if (ts === null || te === null) {
+      redirect(
+        `/flights/new?error=engine&msg=${encodeURIComponent(
+          "Format TACHY invalide (attendu XXXX.XX).",
+        )}`,
+      );
+    }
+    if (te < ts) {
+      redirect(
+        `/flights/new?error=engine&msg=${encodeURIComponent(
+          "TACHY arrivée doit être supérieur à TACHY départ.",
+        )}`,
+      );
+    }
+    tachyStartHundredths = ts;
+    tachyStopHundredths = te;
   }
 
   // Photo keys (rule #6) — V2: optional, but still validated when present.
@@ -99,6 +161,49 @@ export async function submitFlight(formData: FormData) {
     `${parisLocalDateString(startsAtUtc)}T00:00:00.000Z`,
   );
 
+  // Rule: a new flight cannot overlap any existing flight (same pilot
+  // or another pilot). Flights are the source of truth for aircraft
+  // occupancy — two simultaneous flights would be a data-integrity
+  // violation. We look at a ± 1-day window around the candidate date
+  // to catch cross-midnight entries, re-derive each neighbour's UTC
+  // range from its stored engine times, and reject on any overlap.
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const neighbourFlights = await prisma.flight.findMany({
+    where: {
+      date: {
+        gte: new Date(flightDateUtcMidnight.getTime() - DAY_MS),
+        lte: new Date(flightDateUtcMidnight.getTime() + DAY_MS),
+      },
+    },
+    select: {
+      id: true,
+      date: true,
+      engineStart: true,
+      engineStop: true,
+    },
+  });
+  for (const n of neighbourFlights) {
+    let neighbourRange: { startsAtUtc: Date; endsAtUtc: Date };
+    try {
+      const ymd = parisLocalDateString(n.date);
+      const r = parseEngineTimes(ymd, n.engineStart, n.engineStop);
+      neighbourRange = { startsAtUtc: r.startsAtUtc, endsAtUtc: r.endsAtUtc };
+    } catch {
+      // Malformed historic row — skip rather than block the submission.
+      continue;
+    }
+    const overlaps =
+      startsAtUtc.getTime() < neighbourRange.endsAtUtc.getTime() &&
+      endsAtUtc.getTime() > neighbourRange.startsAtUtc.getTime();
+    if (overlaps) {
+      redirect(
+        `/flights/new?error=engine&msg=${encodeURIComponent(
+          "Un vol existe déjà sur ce créneau horaire.",
+        )}`,
+      );
+    }
+  }
+
   await prisma.$transaction(
     async (tx) => {
       const flight = await tx.flight.create({
@@ -110,6 +215,8 @@ export async function submitFlight(formData: FormData) {
           actualDurationMin,
           engineStart: parsed.data.engineStart,
           engineStop: parsed.data.engineStop,
+          tachyStartHundredths,
+          tachyStopHundredths,
           landings: parsed.data.landings,
           remarks: parsed.data.remarks || null,
           photos: rawKeys,

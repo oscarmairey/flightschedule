@@ -41,24 +41,19 @@ const TONE_CONFIG: Record<
 export type AlertProps = {
   tone: Tone;
   children: ReactNode;
-  title?: string;
   className?: string;
 };
 
-export function Alert({ tone, children, title, className = "" }: AlertProps) {
+export function Alert({ tone, children, className = "" }: AlertProps) {
   const { className: toneClass, Icon, defaultLabel } = TONE_CONFIG[tone];
   return (
     <div
       role="alert"
       className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${toneClass} ${className}`}
     >
-      <Icon
-        className="mt-0.5 h-4 w-4 shrink-0"
-        aria-hidden="true"
-      />
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <div className="flex-1">
-        {title && <p className="font-semibold">{title}</p>}
-        <p className={title ? "mt-0.5" : ""}>
+        <p>
           <span className="sr-only">{defaultLabel}&nbsp;: </span>
           {children}
         </p>

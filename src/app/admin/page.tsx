@@ -5,11 +5,17 @@
 // admin validation.)
 
 import Link from "next/link";
-import { Shield, ArrowRight, AlertTriangle, Banknote } from "lucide-react";
+import {
+  Shield,
+  ArrowRight,
+  AlertTriangle,
+  Banknote,
+  CalendarClock,
+} from "lucide-react";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
-import { formatDateTimeFR } from "@/lib/format";
+import { formatDateFR, formatDateTimeFR, formatTimeFR } from "@/lib/format";
 import {
   formatHHMM,
   formatHHMMSigned,
@@ -23,30 +29,47 @@ import { AppShell } from "@/components/AppShell";
 export default async function AdminOverviewPage() {
   await requireAdmin();
 
-  const [lowBalance, recentActivity, recentPayments, pendingTransferCount] =
-    await Promise.all([
-      prisma.user.findMany({
-        where: {
-          isActive: true,
-          role: "PILOT",
-          hdvBalanceMin: { lt: BALANCE_THRESHOLDS.RED_MAX_MIN },
-        },
-        orderBy: { hdvBalanceMin: "asc" },
-        take: 10,
-      }),
-      prisma.transaction.findMany({
-        orderBy: { createdAt: "desc" },
-        take: 10,
-        include: { user: { select: { name: true } } },
-      }),
-      prisma.transaction.findMany({
-        where: { type: { in: ["PACKAGE_PURCHASE", "BANK_TRANSFER"] } },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-        include: { user: { select: { name: true } } },
-      }),
-      prisma.bankTransfer.count({ where: { status: "PENDING" } }),
-    ]);
+  const now = new Date();
+  const [
+    lowBalance,
+    recentActivity,
+    recentPayments,
+    pendingTransferCount,
+    upcomingReservations,
+  ] = await Promise.all([
+    prisma.user.findMany({
+      where: {
+        isActive: true,
+        role: "PILOT",
+        hdvBalanceMin: { lt: BALANCE_THRESHOLDS.RED_MAX_MIN },
+      },
+      orderBy: { hdvBalanceMin: "asc" },
+      take: 10,
+    }),
+    prisma.transaction.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      include: { user: { select: { name: true } } },
+    }),
+    prisma.transaction.findMany({
+      where: { type: { in: ["PACKAGE_PURCHASE", "BANK_TRANSFER"] } },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      include: { user: { select: { name: true } } },
+    }),
+    prisma.bankTransfer.count({ where: { status: "PENDING" } }),
+    // ALL strictly-upcoming reservations from `now` onward. Ongoing
+    // reservations from the current week are deliberately excluded
+    // per product decision.
+    prisma.reservation.findMany({
+      where: {
+        status: "CONFIRMED",
+        startsAt: { gte: now },
+      },
+      orderBy: { startsAt: "asc" },
+      include: { user: { select: { name: true } } },
+    }),
+  ]);
 
   return (
     <AppShell>
@@ -60,6 +83,66 @@ export default async function AdminOverviewPage() {
             Vue d&apos;ensemble
           </h1>
         </header>
+
+        {/* All upcoming reservations. Current-week reservations already in
+            progress are deliberately excluded (startsAt >= now). */}
+        <section
+          aria-label="Prochaines réservations"
+          className="mb-8"
+        >
+          <div className="mb-3 flex items-center gap-2">
+            <CalendarClock
+              className="h-4 w-4 text-text-subtle"
+              aria-hidden="true"
+            />
+            <h2 className="text-xs font-medium uppercase tracking-[0.12em] text-text-subtle">
+              Prochaines réservations
+            </h2>
+          </div>
+          {upcomingReservations.length > 0 ? (
+            <Card padded={false}>
+              <ul className="divide-y divide-border-subtle">
+                {upcomingReservations.map((r) => (
+                  <li
+                    key={r.id}
+                    className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 sm:px-6"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-display text-lg font-semibold tracking-tight text-text-strong">
+                        {r.user.name}
+                      </p>
+                      <p className="mt-1 text-sm tabular text-text-muted">
+                        <span className="font-semibold text-text">
+                          {formatDateFR(r.startsAt)}
+                        </span>
+                        <span className="mx-2 text-text-subtle">·</span>
+                        <span className="tabular">
+                          {formatTimeFR(r.startsAt)} –{" "}
+                          {formatTimeFR(r.endsAt)}
+                        </span>
+                        <span className="mx-2 text-text-subtle">·</span>
+                        <span>{formatHHMM(r.durationMin)}</span>
+                      </p>
+                    </div>
+                    <Link
+                      href={`/admin/pilots/${r.userId}`}
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition-colors hover:text-brand-hover"
+                    >
+                      Voir le pilote
+                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : (
+            <Card tone="sunken">
+              <p className="text-sm text-text-muted">
+                Aucune réservation à venir.
+              </p>
+            </Card>
+          )}
+        </section>
 
         {/* Top metrics — pilots in low-balance + pending bank transfers */}
         <section

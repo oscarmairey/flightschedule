@@ -492,7 +492,7 @@ function CardTabForm({
               type="checkbox"
               checked={saveCard}
               onChange={(e) => setSaveCard(e.target.checked)}
-              className="h-4 w-4 rounded border-border text-brand focus:outline-none"
+              className="h-4 w-4 rounded border-border text-brand"
             />
             {COPY.payment.cardSaveLabel}
           </label>

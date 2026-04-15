@@ -16,7 +16,9 @@ import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
+import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { AppShell } from "@/components/AppShell";
+import { resolveBanner } from "@/lib/banners";
 import {
   createPackage,
   updatePackage,
@@ -32,6 +34,8 @@ function formatEUR(cents: number): string {
   });
 }
 
+type TarifsSection = "forfaits" | "banque";
+
 export default async function AdminTarifsPage({
   searchParams,
 }: {
@@ -43,10 +47,19 @@ export default async function AdminTarifsPage({
     archived?: string;
     unarchived?: string;
     bank?: string;
+    section?: string;
   }>;
 }) {
   await requireAdmin();
   const sp = await searchParams;
+
+  // URL-driven tab state. `bank=1` (set by the upsertBankAccount server
+  // action on success) auto-jumps to the Banque tab so the admin lands
+  // on the confirmation. Otherwise respect `?section=…` or default.
+  const section: TarifsSection =
+    sp.section === "banque" || sp.bank === "1" || sp.error === "invalid_bank"
+      ? "banque"
+      : "forfaits";
 
   const [active, archived, bankAccount] = await Promise.all([
     prisma.package.findMany({
@@ -62,33 +75,22 @@ export default async function AdminTarifsPage({
     }),
   ]);
 
-  const banner =
-    sp.created === "1"
-      ? { tone: "success" as const, msg: "Forfait créé." }
-      : sp.updated === "1"
-        ? { tone: "success" as const, msg: "Forfait mis à jour." }
-        : sp.archived === "1"
-          ? { tone: "success" as const, msg: "Forfait archivé." }
-          : sp.unarchived === "1"
-            ? { tone: "success" as const, msg: "Forfait réactivé." }
-            : sp.bank === "1"
-              ? {
-                  tone: "success" as const,
-                  msg: "Coordonnées bancaires enregistrées.",
-                }
-              : sp.error === "invalid_bank"
-                ? {
-                    tone: "error" as const,
-                    msg: "Coordonnées bancaires invalides (IBAN / BIC).",
-                  }
-                : sp.error === "stripe"
-                  ? {
-                      tone: "error" as const,
-                      msg: `Erreur Stripe : ${sp.msg ?? "détails indisponibles"}`,
-                    }
-                  : sp.error === "invalid"
-                    ? { tone: "error" as const, msg: COPY.errors.invalidInput }
-                    : null;
+  const banner = resolveBanner(sp, {
+    created: { tone: "success", msg: "Forfait créé." },
+    updated: { tone: "success", msg: "Forfait mis à jour." },
+    archived: { tone: "success", msg: "Forfait archivé." },
+    unarchived: { tone: "success", msg: "Forfait réactivé." },
+    bank: { tone: "success", msg: "Coordonnées bancaires enregistrées." },
+    "error:invalid_bank": {
+      tone: "error",
+      msg: "Coordonnées bancaires invalides (IBAN / BIC).",
+    },
+    "error:stripe": {
+      tone: "error",
+      msg: (sp) => `Erreur Stripe : ${sp.msg ?? "détails indisponibles"}`,
+    },
+    "error:invalid": { tone: "error", msg: COPY.errors.invalidInput },
+  });
 
   return (
     <AppShell>
@@ -99,14 +101,34 @@ export default async function AdminTarifsPage({
             {COPY.nav.adminTarifs}
           </p>
           <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-text-strong sm:text-5xl">
-            Forfaits HDV
+            Tarifs
           </h1>
           <p className="mt-3 max-w-xl text-base text-text-muted">
-            Synchronisé avec Stripe — chaque modification crée un nouveau
+            Forfaits HDV et coordonnées bancaires. Les forfaits sont
+            synchronisés avec Stripe — chaque modification crée un nouveau
             tarif (les prix Stripe sont immuables). Les forfaits archivés
             restent dans l&apos;historique des achats.
           </p>
         </header>
+
+        {/* Tab switcher — URL-driven, no client JS. */}
+        <nav
+          aria-label="Sections des tarifs"
+          className="mb-8 flex gap-1 border-b border-border-subtle"
+        >
+          <TabLink
+            href="/admin/tarifs?section=forfaits"
+            active={section === "forfaits"}
+          >
+            Forfaits ({active.length})
+          </TabLink>
+          <TabLink
+            href="/admin/tarifs?section=banque"
+            active={section === "banque"}
+          >
+            Coordonnées bancaires
+          </TabLink>
+        </nav>
 
         {banner && (
           <div className="mb-6">
@@ -114,6 +136,8 @@ export default async function AdminTarifsPage({
           </div>
         )}
 
+        {section === "forfaits" && (
+          <>
         {/* Create form */}
         <Card className="mb-12">
           <CardHeader>
@@ -165,19 +189,22 @@ export default async function AdminTarifsPage({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="new-hdvMinutes" required>
-                HDV (minutes)
+                HDV (HH:MM)
               </Label>
               <Input
                 id="new-hdvMinutes"
                 name="hdvMinutes"
-                type="number"
+                type="text"
                 required
-                min={15}
-                step={15}
                 inputMode="numeric"
                 className="tabular"
-                placeholder="600"
+                placeholder="10h00"
               />
+              <p className="text-xs text-text-subtle">
+                Formats acceptés : <span className="tabular">10h00</span>,{" "}
+                <span className="tabular">10:00</span> ou{" "}
+                <span className="tabular">600</span> (minutes).
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="new-sortOrder">Ordre d&apos;affichage</Label>
@@ -273,18 +300,16 @@ export default async function AdminTarifsPage({
                       </div>
                       <div className="space-y-1.5">
                         <Label htmlFor={`hdv-${pkg.id}`} required>
-                          HDV (minutes)
+                          HDV (HH:MM)
                         </Label>
                         <Input
                           id={`hdv-${pkg.id}`}
                           name="hdvMinutes"
-                          type="number"
+                          type="text"
                           required
-                          min={15}
-                          step={15}
                           inputMode="numeric"
                           className="tabular"
-                          defaultValue={pkg.hdvMinutes}
+                          defaultValue={formatHHMM(pkg.hdvMinutes)}
                         />
                       </div>
                       <div className="space-y-1.5">
@@ -305,13 +330,34 @@ export default async function AdminTarifsPage({
                         <Button type="submit">Enregistrer</Button>
                       </div>
                     </form>
-                    <form action={archivePackage} className="mt-4 border-t border-border-subtle pt-4">
-                      <input type="hidden" name="id" value={pkg.id} />
-                      <Button type="submit" variant="ghost" size="sm">
-                        <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        Archiver ce forfait
-                      </Button>
-                    </form>
+                    <div className="mt-4 border-t border-border-subtle pt-4">
+                      <ConfirmButton
+                        formAction={archivePackage}
+                        hidden={{ id: pkg.id }}
+                        triggerLabel={
+                          <>
+                            <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            Archiver ce forfait
+                          </>
+                        }
+                        triggerVariant="ghost"
+                        triggerSize="sm"
+                        title="Archiver ce forfait ?"
+                        body={
+                          <>
+                            <span className="font-semibold text-text">
+                              {pkg.name}
+                            </span>{" "}
+                            ne sera plus proposé aux pilotes. Les achats
+                            passés restent dans l&apos;historique. Vous
+                            pourrez le réactiver depuis la section
+                            « Forfaits archivés ».
+                          </>
+                        }
+                        confirmLabel="Archiver"
+                        confirmVariant="danger"
+                      />
+                    </div>
                   </Card>
                 </li>
               ))}
@@ -353,9 +399,12 @@ export default async function AdminTarifsPage({
           </section>
         )}
 
-        {/* Bank account (single row) — shown whether configured or not.
-            Placed at the end so the package flow stays uninterrupted. */}
-        <section className="mt-14">
+          </>
+        )}
+
+        {section === "banque" && (
+        /* Bank account (single row) — shown whether configured or not. */
+        <section>
           <h2 className="font-display mb-2 text-2xl font-semibold tracking-tight text-text-strong">
             Coordonnées bancaires
           </h2>
@@ -377,7 +426,7 @@ export default async function AdminTarifsPage({
                   required
                   maxLength={200}
                   defaultValue={bankAccount?.holderName ?? ""}
-                  placeholder="Association CAVOK"
+                  placeholder="Association de pilotage"
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
@@ -445,7 +494,32 @@ export default async function AdminTarifsPage({
             </form>
           </Card>
         </section>
+        )}
       </div>
     </AppShell>
+  );
+}
+
+function TabLink({
+  href,
+  active,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+        active
+          ? "border-brand text-brand"
+          : "border-transparent text-text-muted hover:border-border hover:text-text-strong"
+      }`}
+    >
+      {children}
+    </a>
   );
 }

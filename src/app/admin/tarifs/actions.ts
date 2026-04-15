@@ -13,7 +13,36 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { getStripe } from "@/lib/stripe";
+import { parseHHMM } from "@/lib/duration";
 import { UuidSchema } from "@/lib/validation";
+
+/**
+ * Coerce a form-supplied HDV value into integer minutes.
+ *
+ * Admins enter HDV as HH:MM ("10h00", "10:00") or bare minutes ("600")
+ * in the tarifs form. `parseHHMM` already handles all three forms; we
+ * wrap it in a Zod transform so PackageInputSchema can stay flat.
+ *
+ * Reject values under 15 minutes (nothing below that is a realistic
+ * forfait) and over ~833 hours (50 000 minutes — the pre-existing
+ * ceiling; kept for parity with the earlier numeric input).
+ */
+const HdvMinutesFromString = z
+  .string()
+  .trim()
+  .min(1)
+  .transform((s, ctx) => {
+    const parsed = parseHHMM(s);
+    if (parsed === null) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Durée invalide (attendu HH:MM ou minutes)",
+      });
+      return z.NEVER;
+    }
+    return parsed;
+  })
+  .pipe(z.number().int().min(15).max(50_000));
 
 /**
  * Format a thrown error as a user-readable French message. Used by the
@@ -30,8 +59,8 @@ const PackageInputSchema = z.object({
   description: z.string().trim().max(500).optional(),
   // Price input is in EUR (decimal accepted) — convert to cents.
   priceEUR: z.coerce.number().min(0).max(100_000),
-  // HDV input is in minutes.
-  hdvMinutes: z.coerce.number().int().min(15).max(50_000),
+  // HDV input is HH:MM or bare minutes (see HdvMinutesFromString).
+  hdvMinutes: HdvMinutesFromString,
   sortOrder: z.coerce.number().int().min(0).max(1000).default(0),
 });
 
