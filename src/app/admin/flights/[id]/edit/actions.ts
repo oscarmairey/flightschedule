@@ -41,8 +41,9 @@ import {
   parseEngineTimes,
   EngineTimesError,
   parseTachyToHundredths,
+  formatHHMM,
 } from "@/lib/duration";
-import { parisLocalDateString } from "@/lib/format";
+import { parisLocalDateString, formatDateFR } from "@/lib/format";
 import { applyHdvMutation } from "@/lib/hdv";
 import { IcaoSchema, UuidSchema, NonEmptyTextSchema } from "@/lib/validation";
 
@@ -325,5 +326,124 @@ export async function updateFlightAsAdmin(formData: FormData) {
   revalidatePath("/admin");
   revalidatePath("/flights");
   revalidatePath("/dashboard");
+  revalidatePath("/admin/carnet-de-route");
   redirect(`/admin/pilots/${existing.userId}?flightedited=1`);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Admin flight delete — V2.5
+//
+// Conscious extension of the admin-only override of rule #9 (CLAUDE.md
+// updated to match). When a flight has to be wiped from the logbook
+// (duplicate entry, mistakenly created, deletion requested by the
+// pilot), the admin can delete it from /admin/flights/[id]/edit.
+//
+// HDV cascade strategy:
+//   - The original FLIGHT_DEBIT row is preserved in the ledger but its
+//     `flightId` FK is nulled (the Flight is about to disappear and the
+//     FK is RESTRICT by default — keeping it would block the delete).
+//     Same treatment for any compensating ADMIN_ADJUSTMENT rows from
+//     prior edits.
+//   - A new compensating ADMIN_ADJUSTMENT is appended that REFUNDS
+//     `+actualDurationMin` to the same FlightHourType wallet that the
+//     original debit hit. Net effect on the per-type balance is zero —
+//     the flight is rolled back as if it never happened, while every
+//     historical `balanceAfterMin` snapshot stays intact.
+//   - The Flight row itself is hard-deleted. Photos in R2 are NOT
+//     deleted (out of scope for V1 — orphaned objects expire under R2
+//     lifecycle policy if/when one is configured).
+// ────────────────────────────────────────────────────────────────────
+
+const DeleteFlightSchema = z.object({ flightId: UuidSchema });
+
+export async function deleteFlight(formData: FormData) {
+  const admin = await requireAdmin();
+
+  const parsed = DeleteFlightSchema.safeParse({
+    flightId: formData.get("flightId"),
+  });
+  if (!parsed.success) {
+    redirect("/admin/pilots");
+  }
+
+  // Pre-load for the not-found check + to know where to redirect afterwards.
+  const existing = await prisma.flight.findUnique({
+    where: { id: parsed.data.flightId },
+    select: { id: true, userId: true },
+  });
+  if (!existing) {
+    redirect("/admin/pilots");
+  }
+
+  await prisma.$transaction(
+    async (tx) => {
+      // Re-read under serializable lock so the duration we refund matches
+      // the row we're about to delete.
+      const locked = await tx.flight.findUnique({
+        where: { id: parsed.data.flightId },
+        select: {
+          id: true,
+          userId: true,
+          actualDurationMin: true,
+          depAirport: true,
+          arrAirport: true,
+          date: true,
+        },
+      });
+      if (!locked) {
+        throw new Error(`Flight ${parsed.data.flightId} disappeared`);
+      }
+
+      // Find the original FLIGHT_DEBIT to know which wallet to refund.
+      // Flights inserted via the standard pipeline always have one. If
+      // it's somehow missing (data import, hand-edited row), skip the
+      // refund — better to lose the cascade than to crash mid-delete.
+      const originalDebit = await tx.transaction.findFirst({
+        where: { flightId: locked.id, type: "FLIGHT_DEBIT" },
+        select: { flightHourTypeId: true },
+        orderBy: { createdAt: "asc" },
+      });
+
+      if (originalDebit) {
+        await applyHdvMutation(tx, {
+          userId: locked.userId,
+          flightHourTypeId: originalDebit.flightHourTypeId,
+          type: "ADMIN_ADJUSTMENT",
+          // Positive — refund the full flight duration. Net effect when
+          // combined with the preserved original FLIGHT_DEBIT is zero.
+          amountMin: locked.actualDurationMin,
+          // Pass null because the Flight row is about to be deleted.
+          // The audit trail lives in `reference` text below.
+          flightId: null,
+          reference: `Suppression vol ${locked.depAirport}→${locked.arrAirport} du ${formatDateFR(locked.date)} (${formatHHMM(locked.actualDurationMin)})`,
+          performedById: admin.user.id,
+          allowNegative: true,
+          skipInvariantCheck: true,
+        });
+      }
+
+      // Detach every transaction that referenced the flight so the FK
+      // (RESTRICT by default) doesn't block the delete. The transaction
+      // type / reference already encode what the row was about.
+      await tx.transaction.updateMany({
+        where: { flightId: locked.id },
+        data: { flightId: null },
+      });
+
+      await tx.flight.delete({ where: { id: locked.id } });
+    },
+    { isolationLevel: "Serializable", maxWait: 5000, timeout: 10000 },
+  );
+
+  console.log(
+    `[admin/flights] ${admin.user.email} DELETED flight ${parsed.data.flightId} (user ${existing.userId})`,
+  );
+
+  revalidatePath(`/admin/pilots/${existing.userId}`);
+  revalidatePath("/admin/pilots");
+  revalidatePath("/admin");
+  revalidatePath("/admin/carnet-de-route");
+  revalidatePath("/flights");
+  revalidatePath("/dashboard");
+  redirect(`/admin/pilots/${existing.userId}?flightdeleted=1`);
 }

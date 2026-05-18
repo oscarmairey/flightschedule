@@ -363,3 +363,82 @@ describe("updateFlightAsAdmin — rule #9", () => {
     ).toBe(0);
   });
 });
+
+// ────────────────────────────────────────────────────────────────────
+// Admin DELETE flight — V2.5 extension of rule #9. The original
+// FLIGHT_DEBIT row remains in the ledger (with its `flightId` nulled
+// to allow the FK-restricted Flight delete) and a compensating
+// ADMIN_ADJUSTMENT refunds the full duration. Net per-type balance is
+// unchanged. `balanceAfterMin` snapshots stay intact.
+// ────────────────────────────────────────────────────────────────────
+
+describe("deleteFlight — admin only (V2.5)", () => {
+  beforeEach(() => {
+    currentAdminId = "";
+  });
+
+  it("deletes the flight and refunds the duration via ADMIN_ADJUSTMENT", async () => {
+    const prisma = getTestPrisma();
+    const seeded = await seedOneHourFlight();
+    currentAdminId = seeded.adminId;
+
+    const balanceBefore = await getUserNetBalance(seeded.pilotId);
+    expect(balanceBefore).toBe(seeded.initialBalance);
+
+    const debitBefore = await prisma.transaction.findFirstOrThrow({
+      where: { userId: seeded.pilotId, type: "FLIGHT_DEBIT" },
+    });
+
+    const { deleteFlight } = await import(
+      "@/app/admin/flights/[id]/edit/actions"
+    );
+    const fd = new FormData();
+    fd.set("flightId", seeded.flightId);
+
+    const r = await runExpectingRedirect(() => deleteFlight(fd));
+    expect(r.url).toMatch(/flightdeleted=1/);
+
+    // Flight row is gone.
+    expect(
+      await prisma.flight.findUnique({ where: { id: seeded.flightId } }),
+    ).toBeNull();
+
+    // Original FLIGHT_DEBIT survived (immutable ledger), but its FK to
+    // the deleted flight has been nulled.
+    const debitAfter = await prisma.transaction.findUniqueOrThrow({
+      where: { id: debitBefore.id },
+    });
+    expect(debitAfter.amountMin).toBe(debitBefore.amountMin); // -60
+    expect(debitAfter.balanceAfterMin).toBe(debitBefore.balanceAfterMin);
+    expect(debitAfter.flightId).toBeNull();
+
+    // Exactly one ADMIN_ADJUSTMENT for +60, with reference text and no flightId.
+    const refunds = await prisma.transaction.findMany({
+      where: { userId: seeded.pilotId, type: "ADMIN_ADJUSTMENT" },
+    });
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0].amountMin).toBe(60);
+    expect(refunds[0].flightId).toBeNull();
+    expect(refunds[0].reference).toMatch(/Suppression vol LFPN/);
+    expect(refunds[0].performedById).toBe(seeded.adminId);
+
+    // Net balance is back to the pre-flight starting point (600).
+    expect(await getUserNetBalance(seeded.pilotId)).toBe(600);
+  });
+
+  it("is a no-op redirect on unknown flightId", async () => {
+    const prisma = getTestPrisma();
+    const admin = await makeUser({ role: "ADMIN" });
+    currentAdminId = admin.id;
+
+    const { deleteFlight } = await import(
+      "@/app/admin/flights/[id]/edit/actions"
+    );
+    const fd = new FormData();
+    fd.set("flightId", "00000000-0000-0000-0000-000000000000");
+
+    const r = await runExpectingRedirect(() => deleteFlight(fd));
+    expect(r.url).toBe("/admin/pilots");
+    expect(await prisma.transaction.count({ where: { type: "ADMIN_ADJUSTMENT" } })).toBe(0);
+  });
+});

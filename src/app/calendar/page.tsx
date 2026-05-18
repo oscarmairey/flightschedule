@@ -19,6 +19,11 @@ import {
   parisWeekParam,
   formatParisWeekRange,
   parseWeekParam,
+  startOfParisMonth,
+  shiftParisMonth,
+  parisMonthParam,
+  formatParisMonthLabel,
+  parseMonthParam,
 } from "@/lib/format";
 import {
   formatEstimatedFlightHours,
@@ -33,6 +38,8 @@ import { Label } from "@/components/ui/Label";
 import { Alert } from "@/components/ui/Alert";
 import { AppShell } from "@/components/AppShell";
 import { WeekCalendar } from "@/components/calendar/WeekCalendar";
+import { MonthCalendar } from "@/components/calendar/MonthCalendar";
+import { CalendarViewToggle } from "@/components/calendar/CalendarViewToggle";
 import { CancelReservationButton } from "@/components/calendar/CancelReservationButton";
 import { TimeBlockPicker, type TimeBlock } from "@/components/calendar/TimeBlockPicker";
 import { resolveBanner } from "@/lib/banners";
@@ -46,6 +53,8 @@ export default async function CalendarPage({
 }: {
   searchParams: Promise<{
     week?: string;
+    month?: string;
+    view?: string;
     slot?: string;
     date?: string;
     error?: string;
@@ -57,13 +66,18 @@ export default async function CalendarPage({
   const session = await requireSession();
   const sp = await searchParams;
 
-  // Resolve week
+  // Resolve view + week + month
   const now = new Date();
+  const view: "week" | "month" = sp.view === "month" ? "month" : "week";
   const weekStart = parseWeekParam(sp.week) ?? startOfParisWeek(now);
+  const monthStart = parseMonthParam(sp.month) ?? startOfParisMonth(now);
 
   const prevWeek = parisWeekParam(shiftParisWeek(weekStart, -1));
   const nextWeek = parisWeekParam(shiftParisWeek(weekStart, 1));
   const thisWeek = parisWeekParam(startOfParisWeek(now));
+  const prevMonth = parisMonthParam(shiftParisMonth(monthStart, -1));
+  const nextMonth = parisMonthParam(shiftParisMonth(monthStart, 1));
+  const thisMonth = parisMonthParam(startOfParisMonth(now));
 
   // Pre-selected slot for the booking form (clicked from the grid)
   const slotMatch = sp.slot?.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/);
@@ -132,6 +146,18 @@ export default async function CalendarPage({
 
   const buildSlotHref = (date: string, time: string) =>
     `/calendar?week=${parisWeekParam(weekStart)}&slot=${date}T${time}`;
+
+  // From the month grid: jump to the matching week and seed the booking
+  // form date. The `#calendrier` anchor scrolls past the form into the
+  // grid section so the user immediately sees the week they clicked.
+  const buildDayHrefFromMonth = (yyyymmdd: string) => {
+    const target = new Date(`${yyyymmdd}T12:00:00.000Z`);
+    const targetWeek = parisWeekParam(startOfParisWeek(target));
+    return `/calendar?view=week&week=${targetWeek}&date=${yyyymmdd}#calendrier`;
+  };
+
+  const weekHref = `/calendar?view=week&week=${parisWeekParam(weekStart)}`;
+  const monthHref = `/calendar?view=month&month=${parisMonthParam(monthStart)}`;
 
   return (
     <AppShell>
@@ -345,38 +371,79 @@ export default async function CalendarPage({
           </form>
         </Card>
 
-        {/* 3. Week calendar grid */}
-        <div id="calendrier" className="mb-4 flex flex-wrap items-end justify-between gap-3 scroll-mt-6">
+        {/* 3. Calendar grid — week or month view */}
+        <div
+          id="calendrier"
+          className="mb-4 flex flex-wrap items-end justify-between gap-3 scroll-mt-6"
+        >
           <h2 className="font-display text-2xl font-semibold tracking-tight text-text-strong">
-            {formatParisWeekRange(weekStart)}
+            {view === "month"
+              ? formatParisMonthLabel(monthStart)
+              : formatParisWeekRange(weekStart)}
           </h2>
-          <div className="flex items-center gap-2">
-            <Link href={`/calendar?week=${prevWeek}`} scroll={false}>
-              <Button variant="secondary" size="sm" aria-label="Semaine précédente">
-                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-                <span className="hidden sm:inline">Précédente</span>
-              </Button>
-            </Link>
-            <Link href={`/calendar?week=${thisWeek}`} scroll={false}>
-              <Button variant="secondary" size="sm">
-                Aujourd&apos;hui
-              </Button>
-            </Link>
-            <Link href={`/calendar?week=${nextWeek}`} scroll={false}>
-              <Button variant="secondary" size="sm" aria-label="Semaine suivante">
-                <span className="hidden sm:inline">Suivante</span>
-                <ChevronRight className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <CalendarViewToggle
+              current={view}
+              weekHref={weekHref}
+              monthHref={monthHref}
+            />
+            {view === "week" ? (
+              <>
+                <Link href={`/calendar?view=week&week=${prevWeek}`} scroll={false}>
+                  <Button variant="secondary" size="sm" aria-label="Semaine précédente">
+                    <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                    <span className="hidden sm:inline">Précédente</span>
+                  </Button>
+                </Link>
+                <Link href={`/calendar?view=week&week=${thisWeek}`} scroll={false}>
+                  <Button variant="secondary" size="sm">
+                    Aujourd&apos;hui
+                  </Button>
+                </Link>
+                <Link href={`/calendar?view=week&week=${nextWeek}`} scroll={false}>
+                  <Button variant="secondary" size="sm" aria-label="Semaine suivante">
+                    <span className="hidden sm:inline">Suivante</span>
+                    <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link href={`/calendar?view=month&month=${prevMonth}`} scroll={false}>
+                  <Button variant="secondary" size="sm" aria-label="Mois précédent">
+                    <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                    <span className="hidden sm:inline">Précédent</span>
+                  </Button>
+                </Link>
+                <Link href={`/calendar?view=month&month=${thisMonth}`} scroll={false}>
+                  <Button variant="secondary" size="sm">
+                    Ce mois-ci
+                  </Button>
+                </Link>
+                <Link href={`/calendar?view=month&month=${nextMonth}`} scroll={false}>
+                  <Button variant="secondary" size="sm" aria-label="Mois suivant">
+                    <span className="hidden sm:inline">Suivant</span>
+                    <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </Link>
+              </>
+            )}
           </div>
         </div>
 
         <Card padded={false} className="overflow-hidden">
-          <WeekCalendar
-            weekStart={weekStart}
-            currentUserId={session.user.id}
-            buildSlotHref={buildSlotHref}
-          />
+          {view === "month" ? (
+            <MonthCalendar
+              monthStart={monthStart}
+              buildDayHref={buildDayHrefFromMonth}
+            />
+          ) : (
+            <WeekCalendar
+              weekStart={weekStart}
+              currentUserId={session.user.id}
+              buildSlotHref={buildSlotHref}
+            />
+          )}
         </Card>
       </div>
     </AppShell>

@@ -244,3 +244,51 @@ export function parseWeekParam(raw: string | undefined): Date | null {
   // day of spring-forward or fall-back.
   return startOfParisWeek(parisLocalToUtc(raw, 12, 0));
 }
+
+// ────────────────────────────────────────────────────────────────────
+// Month-navigation helpers — used by the month-overview calendar view.
+// ────────────────────────────────────────────────────────────────────
+
+const MONTH_LONG_FMT = new Intl.DateTimeFormat(LOCALE, {
+  timeZone: TZ,
+  month: "long",
+  year: "numeric",
+});
+
+/** Paris-local 1st-of-month at 00:00 for the month containing `d`, returned as UTC. */
+export function startOfParisMonth(d: Date): Date {
+  const ymd = parisLocalDateString(d); // YYYY-MM-DD
+  const [year, month] = ymd.split("-");
+  return parisLocalToUtc(`${year}-${month}-01`, 0, 0);
+}
+
+/** Shift a month-anchored date by N calendar months, snapped to the 1st. */
+export function shiftParisMonth(monthStart: Date, months: number): Date {
+  const ymd = parisLocalDateString(monthStart);
+  const [yearStr, monthStr] = ymd.split("-");
+  const total = Number(yearStr) * 12 + (Number(monthStr) - 1) + months;
+  const newYear = Math.floor(total / 12);
+  const newMonth = (total % 12) + 1;
+  const target = `${newYear}-${newMonth.toString().padStart(2, "0")}-01`;
+  return parisLocalToUtc(target, 0, 0);
+}
+
+/** Format a month-anchored date as "YYYY-MM" for ?month=… URLs. */
+export function parisMonthParam(d: Date): string {
+  return parisLocalDateString(d).slice(0, 7);
+}
+
+/** "Avril 2026" — French long-form month label. Capitalises the first letter. */
+export function formatParisMonthLabel(d: Date): string {
+  const raw = MONTH_LONG_FMT.format(d);
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+/**
+ * Parse a ?month=YYYY-MM param into a Paris-anchored 1st-of-month at 00:00.
+ * Returns null on malformed input.
+ */
+export function parseMonthParam(raw: string | undefined): Date | null {
+  if (!raw || !/^\d{4}-\d{2}$/.test(raw)) return null;
+  return parisLocalToUtc(`${raw}-01`, 0, 0);
+}

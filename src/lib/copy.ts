@@ -42,6 +42,7 @@ export const COPY = {
     admin: "Administration",
     adminPilots: "Pilotes",
     adminDisponibilites: "Disponibilités",
+    adminCarnetDeRoute: "Carnet de route",
     adminTarifs: "Tarifs",
     adminVirements: "Encaissements",
     signOut: "Déconnexion",

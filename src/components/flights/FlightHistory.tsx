@@ -21,9 +21,14 @@ export async function FlightHistory({
   userId: string;
   limit?: number;
 }) {
+  // Both keys descend so the latest flight of the day appears first
+  // within a same-date group. `Flight.date` is `@db.Date` (no time of
+  // day) so a single-key sort would leave intra-day order at the mercy
+  // of insertion order; `engineStart` is a "HH:MM" string and orders
+  // lexicographically across the full 00:00–23:59 range.
   const flights = await prisma.flight.findMany({
     where: { userId },
-    orderBy: { date: "desc" },
+    orderBy: [{ date: "desc" }, { engineStart: "desc" }],
     take: limit,
   });
 

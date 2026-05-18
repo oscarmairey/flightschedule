@@ -17,7 +17,7 @@ import { Users, Plus, ArrowRight } from "lucide-react";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
-import { formatHHMM, balanceTier } from "@/lib/duration";
+import { formatHHMM, formatHHMMOrDays, balanceTier } from "@/lib/duration";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Alert } from "@/components/ui/Alert";
@@ -234,7 +234,7 @@ export default async function AdminPilotsPage({
                     {formatHHMM(totalCreditMap.get(p.id) ?? 0)}
                   </td>
                   <td className="py-4 pr-4 text-right tabular text-text">
-                    {formatHHMM(upcomingResMap.get(p.id) ?? 0)}
+                    {formatHHMMOrDays(upcomingResMap.get(p.id) ?? 0)}
                   </td>
                   <td className="py-4 pr-4 text-right tabular text-text">
                     {formatHHMM(ytdMap.get(p.id) ?? 0)}
@@ -311,7 +311,7 @@ export default async function AdminPilotsPage({
                 <div>
                   <dt className="text-text-subtle">Résa HDV</dt>
                   <dd className="font-display tabular text-sm font-semibold text-text">
-                    {formatHHMM(upcomingResMap.get(p.id) ?? 0)}
+                    {formatHHMMOrDays(upcomingResMap.get(p.id) ?? 0)}
                   </dd>
                 </div>
                 <div>

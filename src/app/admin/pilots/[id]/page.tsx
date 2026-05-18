@@ -6,7 +6,7 @@ import { ArrowLeft, PencilLine } from "lucide-react";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
-import { formatDateFR, formatDateTimeFR } from "@/lib/format";
+import { formatDateFR, formatDateTimeFR, parisLocalDateString } from "@/lib/format";
 import { formatHHMM, formatHHMMSigned } from "@/lib/duration";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -40,6 +40,7 @@ export default async function PilotDetailPage({
     promoted?: string;
     emailchanged?: string;
     flightedited?: string;
+    flightdeleted?: string;
     error?: string;
   }>;
 }) {
@@ -102,9 +103,11 @@ export default async function PilotDetailPage({
   // bloc OFF / bloc ON, airports, etc. The compensating ADMIN_ADJUSTMENT
   // row that the edit produces appears further down in "20 derniers
   // mouvements" so the operator sees the ledger impact in one scroll.
+  // Both keys descend so the latest flight of the day appears first
+  // within a same-date group (Flight.date is `@db.Date`, no time).
   const recentFlights = await prisma.flight.findMany({
     where: { userId: pilot.id },
-    orderBy: { date: "desc" },
+    orderBy: [{ date: "desc" }, { engineStart: "desc" }],
     take: 10,
     select: {
       id: true,
@@ -114,6 +117,24 @@ export default async function PilotDetailPage({
       actualDurationMin: true,
       engineStart: true,
       engineStop: true,
+    },
+  });
+
+  // Latest 10 reservations for this pilot — newest first. Surfaced
+  // alongside flights so the admin has the same backlog view for
+  // bookings (cancelled, auto-created, or active).
+  const recentReservations = await prisma.reservation.findMany({
+    where: { userId: pilot.id },
+    orderBy: { startsAt: "desc" },
+    take: 10,
+    select: {
+      id: true,
+      startsAt: true,
+      endsAt: true,
+      durationMin: true,
+      status: true,
+      autoCreatedFromFlight: true,
+      comment: true,
     },
   });
 
@@ -129,6 +150,10 @@ export default async function PilotDetailPage({
     flightedited: {
       tone: "success",
       msg: "Vol corrigé. Le solde HDV a été ajusté en conséquence.",
+    },
+    flightdeleted: {
+      tone: "success",
+      msg: "Vol supprimé. Le solde HDV a été recrédité via un ajustement compensatoire.",
     },
     toggled: {
       tone: "success",
@@ -516,13 +541,16 @@ export default async function PilotDetailPage({
 
         {/* Recent flights — entry point to /admin/flights/[id]/edit */}
         <section className="mb-12">
-          <div className="mb-4 flex items-baseline justify-between">
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="font-display text-2xl font-semibold tracking-tight text-text-strong">
               10 derniers vols
             </h2>
-            <p className="text-xs text-text-subtle">
-              Cliquez sur « Modifier » pour corriger un vol.
-            </p>
+            <Link
+              href={`/admin/pilots/${pilot.id}/flights`}
+              className="text-xs font-medium text-brand transition-colors hover:text-brand-hover"
+            >
+              Voir tous les vols →
+            </Link>
           </div>
           {recentFlights.length === 0 ? (
             <Card tone="sunken">
@@ -562,6 +590,86 @@ export default async function PilotDetailPage({
                   </Link>
                 </li>
               ))}
+            </ul>
+          )}
+        </section>
+
+        {/* Recent reservations — same shape as the flight list. */}
+        <section className="mb-12">
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-text-strong">
+              10 dernières réservations
+            </h2>
+            <Link
+              href={`/admin/pilots/${pilot.id}/reservations`}
+              className="text-xs font-medium text-brand transition-colors hover:text-brand-hover"
+            >
+              Voir toutes les réservations →
+            </Link>
+          </div>
+          {recentReservations.length === 0 ? (
+            <Card tone="sunken">
+              <p className="text-sm text-text-muted">
+                Aucune réservation pour ce pilote.
+              </p>
+            </Card>
+          ) : (
+            <ul className="divide-y divide-border-subtle border-y border-border-subtle">
+              {recentReservations.map((r) => {
+                const startYmd = parisLocalDateString(r.startsAt);
+                const endYmd = parisLocalDateString(r.endsAt);
+                const spansSeveralDates = startYmd !== endYmd;
+                const startTime = new Intl.DateTimeFormat("fr-FR", {
+                  timeZone: "Europe/Paris",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }).format(r.startsAt);
+                const endTime = new Intl.DateTimeFormat("fr-FR", {
+                  timeZone: "Europe/Paris",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }).format(r.endsAt);
+                const statusVariant =
+                  r.status === "CONFIRMED"
+                    ? ("success" as const)
+                    : ("danger" as const);
+                const statusLabel =
+                  r.status === "CONFIRMED"
+                    ? "Confirmée"
+                    : r.status === "CANCELLED_BY_PILOT"
+                      ? "Annulée (pilote)"
+                      : "Annulée (admin)";
+                return (
+                  <li
+                    key={r.id}
+                    className="flex flex-wrap items-center justify-between gap-3 py-3.5 text-sm"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-display text-base font-semibold text-text-strong">
+                        {spansSeveralDates
+                          ? `Du ${formatDateFR(r.startsAt)} au ${formatDateFR(r.endsAt)}`
+                          : formatDateFR(r.startsAt)}
+                      </p>
+                      <p className="mt-0.5 text-xs tabular text-text-subtle">
+                        {startTime} – {endTime}
+                        <span className="mx-1.5">·</span>
+                        <span className="font-semibold text-text">
+                          {formatHHMM(r.durationMin)}
+                        </span>
+                        {r.autoCreatedFromFlight && (
+                          <>
+                            <span className="mx-1.5">·</span>
+                            <span className="italic">créée par un vol</span>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    <Badge variant={statusVariant} size="sm">
+                      {statusLabel}
+                    </Badge>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>

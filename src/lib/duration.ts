@@ -72,6 +72,25 @@ export function formatHHMMSigned(minutes: number): string {
   return formatHHMM(minutes);
 }
 
+const MIN_PER_DAY = 24 * MIN_PER_HOUR;
+
+/**
+ * Format minutes as "Xj YhMM" once they cross a full day, otherwise
+ * fall back to plain `formatHHMM`. Used in totals where 30h+ values
+ * are routine (e.g. the Résa HDV column on /admin/pilots) and reading
+ * a long hour count is harder than a day count.
+ */
+export function formatHHMMOrDays(minutes: number): string {
+  if (!Number.isFinite(minutes)) return "—";
+  if (Math.abs(minutes) < MIN_PER_DAY) return formatHHMM(minutes);
+  const sign = minutes < 0 ? "-" : "";
+  const abs = Math.abs(Math.trunc(minutes));
+  const days = Math.floor(abs / MIN_PER_DAY);
+  const remHours = Math.floor((abs % MIN_PER_DAY) / MIN_PER_HOUR);
+  const remMins = abs % MIN_PER_HOUR;
+  return `${sign}${days}j ${remHours}h${remMins.toString().padStart(2, "0")}`;
+}
+
 /**
  * Balance color tier per PRD §3.4.1:
  *   green > 5h, amber 2–5h, red < 2h.

@@ -3,14 +3,20 @@
 // We exercise the public server action `submitFlight` so the test goes
 // through the real parse → overlap check → applyHdvMutation pipeline.
 // `requireSession` is mocked per-test to stand in for the authenticated
-// pilot. The server action calls redirect() on validation errors; we
-// catch the NEXT_REDIRECT control-flow throw and assert the redirect URL.
+// pilot.
+//
+// Action shape (V2.5): `submitFlight(prevState, formData)` is consumed
+// by `useActionState` in the new client form. On success it redirects
+// (NEXT_REDIRECT control-flow throw, captured below). On validation /
+// business-rule errors it RETURNS `{ ok: false, error, values }` — so
+// failure paths don't throw; we assert on the returned error text.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getTestPrisma } from "../setup/db";
 import { makeUser, getUserNetBalance } from "../setup/factories";
 import { markUploaded } from "../setup/mocks";
 import { makePhotoKey } from "@/lib/r2";
+import type { SubmitFlightState } from "@/app/flights/new/actions";
 
 // Default session stub — each test sets `currentUserId` before calling
 // submitFlight.
@@ -52,6 +58,29 @@ async function runExpectingRedirect(fn: () => Promise<unknown>): Promise<Redirec
   throw new Error("Expected a redirect to be thrown");
 }
 
+/** Run a submit that should fail validation — assert the action returns
+ *  `{ ok: false, error, values }` and surface the error text. */
+async function runExpectingError(
+  fn: () => Promise<SubmitFlightState>,
+): Promise<{ error: string }> {
+  let state: SubmitFlightState;
+  try {
+    state = await fn();
+  } catch (err) {
+    const redirect = captureRedirect(err);
+    if (redirect) {
+      throw new Error(
+        `Expected a returned error state, got redirect to ${redirect.url}`,
+      );
+    }
+    throw err;
+  }
+  if (!state || state.ok !== false) {
+    throw new Error("Expected a failed action state, got null/success");
+  }
+  return { error: state.error };
+}
+
 async function submitFormData(data: Record<string, string | string[]>) {
   const { submitFlight } = await import("@/app/flights/new/actions");
   const fd = new FormData();
@@ -59,7 +88,9 @@ async function submitFormData(data: Record<string, string | string[]>) {
     if (Array.isArray(v)) for (const entry of v) fd.append(k, entry);
     else fd.set(k, v);
   }
-  return submitFlight(fd);
+  // V2.5 action takes (prevState, formData) — pass null for the initial
+  // state since these tests always exercise the first submission.
+  return submitFlight(null, fd);
 }
 
 function yesterdayYmd(): string {
@@ -116,7 +147,7 @@ describe("submitFlight — rule #3b", () => {
       .toISOString()
       .slice(0, 10);
 
-    const r = await runExpectingRedirect(() =>
+    const r = await runExpectingError(() =>
       submitFormData({
         depAirport: "LFPN",
         arrAirport: "LFPN",
@@ -126,7 +157,7 @@ describe("submitFlight — rule #3b", () => {
         landings: "1",
       }),
     );
-    expect(r.url).toMatch(/error=engine/);
+    expect(r.error).toMatch(/futur/i);
     expect(await prisma.flight.count()).toBe(0);
     expect(await prisma.transaction.count()).toBe(0);
   });
@@ -152,7 +183,7 @@ describe("submitFlight — rule #3b", () => {
     // Pilot B tries 10:00–11:00 — overlaps.
     const pilotB = await makeUser({ hdvBalanceMin: 600 });
     currentUserId = pilotB.id;
-    const r = await runExpectingRedirect(() =>
+    const r = await runExpectingError(() =>
       submitFormData({
         depAirport: "LFPN",
         arrAirport: "LFPN",
@@ -162,7 +193,7 @@ describe("submitFlight — rule #3b", () => {
         landings: "1",
       }),
     );
-    expect(r.url).toMatch(/error=engine/);
+    expect(r.error).toMatch(/existe d.j./i);
     expect(await prisma.flight.count()).toBe(1);
   });
 
@@ -193,7 +224,7 @@ describe("submitFlight — rule #3b", () => {
     const alien = makePhotoKey(other.id);
     markUploaded(alien);
 
-    const r = await runExpectingRedirect(() =>
+    const r = await runExpectingError(() =>
       submitFormData({
         depAirport: "LFPN",
         arrAirport: "LFPN",
@@ -204,7 +235,7 @@ describe("submitFlight — rule #3b", () => {
         photoKeys: [alien],
       }),
     );
-    expect(r.url).toMatch(/bad_photo_key/);
+    expect(r.error).toMatch(/photo invalide/i);
     expect(await prisma.flight.count()).toBe(0);
   });
 
@@ -215,7 +246,7 @@ describe("submitFlight — rule #3b", () => {
 
     const ownKey = makePhotoKey(pilot.id); // NOT marked uploaded
 
-    const r = await runExpectingRedirect(() =>
+    const r = await runExpectingError(() =>
       submitFormData({
         depAirport: "LFPN",
         arrAirport: "LFPN",
@@ -226,7 +257,7 @@ describe("submitFlight — rule #3b", () => {
         photoKeys: [ownKey],
       }),
     );
-    expect(r.url).toMatch(/photo_missing/);
+    expect(r.error).toMatch(/n.a pas .t. trouv.e/i);
     expect(await prisma.flight.count()).toBe(0);
   });
 
@@ -241,7 +272,7 @@ describe("submitFlight — rule #3b", () => {
       return key;
     });
 
-    const r = await runExpectingRedirect(() =>
+    const r = await runExpectingError(() =>
       submitFormData({
         depAirport: "LFPN",
         arrAirport: "LFPN",
@@ -252,7 +283,7 @@ describe("submitFlight — rule #3b", () => {
         photoKeys: six,
       }),
     );
-    expect(r.url).toMatch(/too_many_photos/);
+    expect(r.error).toMatch(/maximum 5 photos/i);
     expect(await prisma.flight.count()).toBe(0);
   });
 
@@ -262,7 +293,7 @@ describe("submitFlight — rule #3b", () => {
     currentUserId = pilot.id;
 
     // Only start supplied — rejected.
-    const r1 = await runExpectingRedirect(() =>
+    const r1 = await runExpectingError(() =>
       submitFormData({
         depAirport: "LFPN",
         arrAirport: "LFPN",
@@ -273,10 +304,10 @@ describe("submitFlight — rule #3b", () => {
         tachyStart: "1234.56",
       }),
     );
-    expect(r1.url).toMatch(/error=engine/);
+    expect(r1.error).toMatch(/tachy/i);
 
     // Stop < start — rejected.
-    const r2 = await runExpectingRedirect(() =>
+    const r2 = await runExpectingError(() =>
       submitFormData({
         depAirport: "LFPN",
         arrAirport: "LFPN",
@@ -288,7 +319,7 @@ describe("submitFlight — rule #3b", () => {
         tachyStop: "1999.50",
       }),
     );
-    expect(r2.url).toMatch(/error=engine/);
+    expect(r2.error).toMatch(/tachy/i);
     expect(await prisma.flight.count()).toBe(0);
   });
 });

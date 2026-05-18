@@ -4,6 +4,8 @@ The app to easily manage the reservation schedule of your plane. Used by pilots 
 
 For full product scope, user flows, and feature details, see [PRD.md](./PRD.md).
 
+> ⚠️ **This checkout is the DEV environment.** The Docker stack on this host (`/opt/flightschedule`) is deployed at **https://dev.flightschedule.org** — a staging/preview deployment. Production (`https://flightschedule.org`) runs on a separate host. When this doc says "production", treat that as a description of the prod twin, not of this box. Any change you make here lands in the DEV deployment only.
+
 ---
 
 ## Quick Context
@@ -110,7 +112,7 @@ V2 — the FLIGHT is the unit of HDV consumption. A flight insert is one seriali
 - Flight record stores `photos: text[]` (array of R2 object keys, e.g. `flights/{flight_id}/photo_1.jpg` — never URLs).
 - **Server is the SOLE source of object keys.** Use `makePhotoKey(userId)` from `src/lib/r2.ts`. Flight submit re-validates each key with `isPhotoKeyOwnedBy()` and HEADs each one in R2 to confirm the upload landed.
 - HEIC: V1 accepts `image/heic` mime-type as-is. Modern iOS Safari typically serves JPEG from the camera roll, so client-side conversion is deferred until proven needed on a real iPhone.
-- **CORS is REQUIRED for the cross-origin browser → R2 PUT.** R2 buckets ship with no CORS policy by default. The policy must be set via the **Cloudflare REST API**, not the S3 `PutBucketCors` API — R2 access keys lack `s3:PutBucketCors` and return `AccessDenied`. Use `scripts/r2-cors-setup.ts` (idempotent, run once per bucket). Allowed origins are pinned to `https://flightschedule.org` (and `https://www.flightschedule.org`) plus localhost variants.
+- **CORS is REQUIRED for the cross-origin browser → R2 PUT.** R2 buckets ship with no CORS policy by default. The policy must be set via the **Cloudflare REST API**, not the S3 `PutBucketCors` API — R2 access keys lack `s3:PutBucketCors` and return `AccessDenied`. Use `scripts/r2-cors-setup.ts` (idempotent, run once per bucket). Allowed origins include `https://flightschedule.org`, `https://www.flightschedule.org`, `https://dev.flightschedule.org`, plus localhost variants — the dev deployment writes to the same R2 bucket as prod, so its origin must be on the list.
 - Limits: **0 to 5 photos per flight (V2 — optional)**, max 10 MB per photo.
 - Bucket: `cavok-flight-photos`, region WEUR. S3 endpoint is `R2_ENDPOINT` in `.env`; access keys are scoped to that single bucket (read+write only).
 
@@ -139,7 +141,14 @@ V2 — the FLIGHT is the unit of HDV consumption. A flight insert is one seriali
   - **Never mutate the original `FLIGHT_DEBIT` row.** That would invalidate the `balanceAfterMin` snapshot of every later transaction in the ledger and break point-in-time reconstruction (rule #2). The compensating ADMIN_ADJUSTMENT preserves history and keeps `SUM(transactions) = User.hdvBalanceMin` by construction.
   - The Flight row's `actualDurationMin` is the source of truth for the flight; the original FLIGHT_DEBIT row remains as a historical artifact tied to the same `flightId`. Admin audit reads can group "ledger entries about flight X" via `Transaction.flightId`.
   - Photos cannot be edited from this surface (read-only display) — out of scope for the initial admin edit pass.
-- Flights still cannot be cancelled or deleted from the UI.
+- **Admin delete path (`/admin/flights/[id]/edit` → "Supprimer ce vol")** — admins can hard-delete a flight (duplicate entry, mistakenly created, deletion requested by the pilot). Pilots still cannot. The `deleteFlight` action runs in one serializable transaction:
+  1. Re-fetch flight under lock.
+  2. Find the original FLIGHT_DEBIT to identify the wallet (`flightHourTypeId`) that bore the cost.
+  3. Append a compensating `ADMIN_ADJUSTMENT` with `amountMin = +actualDurationMin` (positive — refund), `flightId: null`, descriptive `reference` like `Suppression vol LFPN→LFPO du 12/04/2026 (1h35)`, `allowNegative: true`, `skipInvariantCheck: true`.
+  4. `UPDATE Transaction SET flightId = NULL WHERE flightId = <id>` (the FK is RESTRICT by default — without this, the delete blocks; the audit text in `reference` already encodes what each row was about).
+  5. `DELETE FROM Flight WHERE id = <id>`.
+  - Net per-type balance is unchanged (debit + refund cancel out). Every historical `balanceAfterMin` snapshot stays intact (we never mutate ledger rows, only append). Photos in R2 are NOT deleted (V1 — orphan objects expire under R2 lifecycle policy if/when one is configured).
+- Flights still cannot be cancelled or deleted from the pilot UI.
 
 ### 10. Soft delete users only
 
@@ -279,23 +288,20 @@ Public URL via Caddy + Cloudflare: **https://flightschedule.org**
 
 ---
 
-## Production access (this server)
+## Deployment access (this server — DEV)
 
-- **Public URL:** https://flightschedule.org
+This box hosts the **dev deployment**, served at `https://dev.flightschedule.org`. The production deployment of the app sits behind `https://flightschedule.org` on a separate host; that host follows the same shape (Caddy + Cloudflare proxied, Docker stack, Postgres on `127.0.0.1:5442`, web on `0.0.0.0:6000`) but is administered separately.
+
+- **Public URL (this host):** https://dev.flightschedule.org
 - **Server IP:** 89.167.7.195 (Hetzner)
-- **DNS:** Cloudflare proxied records for `flightschedule.org` (apex + `www`) → server IP. Proxied (orange cloud) is **required** because Caddy serves a Cloudflare Origin CA cert at the origin that browsers only trust when traffic comes via Cloudflare's edge.
-- **TLS at the origin:** `/etc/caddy/certs/flightschedule.org.{pem,key}` — Cloudflare Origin CA cert covering `flightschedule.org` + `www.flightschedule.org`. Dedicated to this app (other apps on the same VPS use a separate `*.oscarmairey.com` cert).
+- **DNS:** Cloudflare proxied record for `dev.flightschedule.org` → server IP. Proxied (orange cloud) is **required** because Caddy serves a Cloudflare Origin CA cert at the origin that browsers only trust when traffic comes via Cloudflare's edge.
+- **TLS at the origin:** `/etc/caddy/certs/flightschedule.org.{pem,key}` — Cloudflare Origin CA cert covering `dev.flightschedule.org` (and any other `*.flightschedule.org` SANs issued at the same time). Dedicated to this app (other apps on the same VPS use a separate `*.oscarmairey.com` cert).
 - **Caddy block** (in `/etc/caddy/Caddyfile`, applied with `sudo systemctl reload caddy`):
 
   ```
-  flightschedule.org {
+  dev.flightschedule.org {
       tls /etc/caddy/certs/flightschedule.org.pem /etc/caddy/certs/flightschedule.org.key
       reverse_proxy localhost:6000
-  }
-
-  www.flightschedule.org {
-      tls /etc/caddy/certs/flightschedule.org.pem /etc/caddy/certs/flightschedule.org.key
-      redir https://flightschedule.org{uri} permanent
   }
   ```
 
@@ -314,7 +320,7 @@ Public URL via Caddy + Cloudflare: **https://flightschedule.org**
 
 **Foundation laid as of April 2026.** Working scaffold includes:
 
-- Next.js 16 + React 19 + Tailwind 4 + TypeScript, running in Docker behind Caddy at https://flightschedule.org
+- Next.js 16 + React 19 + Tailwind 4 + TypeScript, running in Docker behind Caddy at https://dev.flightschedule.org (this host — DEV)
 - Prisma 7 schema covering all V1 entities (User, Reservation, Flight, Transaction, AvailabilityBlock) — first migration applied
 - Auth.js v5 Credentials provider + JWT sessions + route protection via `proxy.ts` (split into `auth.config.ts` edge-safe / `auth.ts` Node)
 - Placeholder pages: `/login` (working sign-in form), `/dashboard`, `/setup-password`
@@ -323,7 +329,7 @@ Public URL via Caddy + Cloudflare: **https://flightschedule.org**
 - Cloudflare R2 bucket `cavok-flight-photos` (private), S3 access keys in `.env`
 - GitHub repo: `oscarmairey/flightschedule` (private)
 
-**V1 fully built and deployed as of commit `4544dc8`.** Live behind Caddy at https://flightschedule.org via the production multi-stage Docker image. All 21 routes registered; Stripe Checkout end-to-end (test mode) verified with a successful 5h credit; admin pilot CRUD, calendar + atomic booking, flight entry with R2 photo upload (CORS configured), admin validation queue, and admin overview all live.
+**V1 fully built and deployed as of commit `4544dc8`.** Live in DEV behind Caddy at https://dev.flightschedule.org via the production multi-stage Docker image (and on prod at https://flightschedule.org on the separate prod host). All 21 routes registered; Stripe Checkout end-to-end (test mode) verified with a successful 5h credit; admin pilot CRUD, calendar + atomic booking, flight entry with R2 photo upload (CORS configured), admin validation queue, and admin overview all live.
 
 **Rebrand to FlightSchedule (April 7, 2026).** The flyschedule.org → flightschedule.org domain cutover and brand rename happened today. Source code, docs, configs, and the public domain all use the FlightSchedule name. Live infrastructure (Caddy origin cert, DNS records, R2 bucket allowed origins, `.env` `NEXT_PUBLIC_APP_URL` / `NEXTAUTH_URL` / `RESEND_FROM_EMAIL`) is being updated by the operator separately. Legacy `cavok-*` infrastructure handles are unchanged — see "Legacy `cavok-*` names" below.
 

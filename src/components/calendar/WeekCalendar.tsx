@@ -19,7 +19,13 @@
 //     so the whole week is reachable from a phone.
 //   - 3-hour slot granularity (matches RESERVATION_LIMITS — V2 inversion).
 //   - 00:00–24:00 visible band (8 rows of 3 hours: 00–03, 03–06, 06–09,
-//     09–12, 12–15, 15–18, 18–21, 21–24). Each row is ≥44px tall.
+//     09–12, 12–15, 15–18, 18–21, 21–24). Each row is `min-h-16` (64px)
+//     so the full 24h fits in roughly half the previous viewport height
+//     (was `min-h-16` / 128px) and the operator can scan a week at a
+//     glance on a laptop. The trade-off is that long block content gets
+//     truncated — name + time range only render in-cell; the full
+//     details (duration, comment) remain in `aria-label` / `title` for
+//     hover and screen readers.
 //   - Own reservations highlighted in brand sky blue; others in stone.
 //   - Bookable slots are clickable links to /calendar?slot=...
 //   - Every interactive cell has an explicit aria-label so screen
@@ -308,7 +314,7 @@ export async function WeekCalendar({
                 className="grid border-t border-border-subtle"
                 style={{ gridTemplateColumns: "64px repeat(7, 1fr)" }}
               >
-                <div className="flex min-h-32 items-start justify-end px-2 pt-2 text-xs tabular text-text-subtle">
+                <div className="flex min-h-16 items-start justify-end px-2 pt-2 text-xs tabular text-text-subtle">
                   {`${pad2(slotMin / 60)}h`}
                 </div>
                 {days.map((d, dayIdx) => {
@@ -352,7 +358,7 @@ export async function WeekCalendar({
                         role="img"
                         aria-label={detailParts.join(", ")}
                         title={detailParts.join(" · ")}
-                        className={`relative min-h-32 border-l border-border-subtle ${
+                        className={`relative min-h-16 border-l border-border-subtle ${
                           isOwn
                             ? "bg-brand text-text-on-brand"
                             : "bg-text-muted/30 text-text"
@@ -361,22 +367,13 @@ export async function WeekCalendar({
                         }`}
                       >
                         {isFirstSlot && segment.isSegmentStart && (
-                          <div className="absolute inset-x-1.5 top-1.5 space-y-0.5">
+                          <div className="absolute inset-x-1 top-1 space-y-0.5">
                             <p className="truncate text-xs font-semibold leading-tight">
                               {segment.r.user.name}
                             </p>
                             <p className="truncate text-[0.7rem] tabular leading-tight opacity-80">
                               {segment.overallStartLabel}–{segment.overallEndLabel}
                             </p>
-                            <p className="truncate text-[0.7rem] leading-tight opacity-80">
-                              {formatReservationDuration(segment.r.durationMin)}
-                              {estimatedLabel ? ` · ${estimatedLabel}` : ""}
-                            </p>
-                            {segment.r.comment && (
-                              <p className="truncate text-[0.7rem] italic leading-tight opacity-80">
-                                {segment.r.comment}
-                              </p>
-                            )}
                           </div>
                         )}
                       </div>
@@ -390,7 +387,7 @@ export async function WeekCalendar({
                         role="img"
                         aria-label="Fermé — hors période d'ouverture"
                         title="Fermé — hors période d'ouverture"
-                        className="min-h-32 border-l border-border-subtle bg-danger-soft/60"
+                        className="min-h-16 border-l border-border-subtle bg-danger-soft/60"
                       />
                     );
                   }
@@ -406,7 +403,7 @@ export async function WeekCalendar({
                             ? `Indisponible — ${unavailHit.reason}`
                             : "Indisponible"
                         }
-                        className="min-h-32 border-l border-border-subtle bg-danger-soft/60"
+                        className="min-h-16 border-l border-border-subtle bg-danger-soft/60"
                       />
                     );
                   }
@@ -419,7 +416,7 @@ export async function WeekCalendar({
                       scroll={false}
                       aria-label={`Réserver le ${formatDateFR(d.date)} à ${timeStr}`}
                       title={`Disponible — réserver à ${timeStr}`}
-                      className={`min-h-32 border-l border-border-subtle transition-colors hover:bg-surface-sunken/40 ${
+                      className={`min-h-16 border-l border-border-subtle transition-colors hover:bg-surface-sunken/40 ${
                         isToday ? "bg-warning-soft/10" : ""
                       }`}
                     />

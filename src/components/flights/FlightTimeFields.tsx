@@ -12,9 +12,19 @@ import { useState } from "react";
 
 const PREVIEW_DATE = "2026-01-01";
 
-export function FlightTimeFields() {
-  const [engineStart, setEngineStart] = useState("");
-  const [engineStop, setEngineStop] = useState("");
+type Props = {
+  /** Initial bloc OFF (HH:MM). Used by NewFlightForm to restore the
+   *  user's last-typed value after a server-side validation error. */
+  defaultStart?: string;
+  defaultStop?: string;
+};
+
+export function FlightTimeFields({
+  defaultStart = "",
+  defaultStop = "",
+}: Props = {}) {
+  const [engineStart, setEngineStart] = useState(defaultStart);
+  const [engineStop, setEngineStop] = useState(defaultStop);
 
   let preview = "—";
   let helper =

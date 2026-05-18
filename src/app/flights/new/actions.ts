@@ -12,6 +12,14 @@
 // V2.2: flights are standalone log entries — no reservation link.
 // The reservation selector, auto-creation, and expansion logic were
 // removed when the Flight→Reservation FK was dropped.
+//
+// Action shape (React 19 / Next 16): `submitFlight` is consumed by
+// `useActionState` in `<NewFlightForm>` and follows the
+// `(prevState, formData) => nextState` signature. On validation or
+// business-rule errors, it returns `{ ok: false, error, values }` so
+// the client can re-render the form with the user's typed input intact
+// and a French error banner. On success, it falls through to the
+// classic `redirect("/flights?added=1")` flash pattern.
 
 "use server";
 
@@ -50,8 +58,54 @@ const SubmitFlightSchema = z.object({
   remarks: z.string().trim().max(2000).optional(),
 });
 
-export async function submitFlight(formData: FormData) {
+/** Snapshot of every scalar field the user typed, replayed back into
+ *  the form on the error path so nothing is lost. Photos are not in
+ *  here — they live in <PhotoUpload>'s own client state and survive a
+ *  re-render of the parent form. */
+export type SubmitFlightValues = {
+  depAirport: string;
+  arrAirport: string;
+  flightDate: string;
+  engineStart: string;
+  engineStop: string;
+  tachyStart: string;
+  tachyStop: string;
+  landings: string;
+  remarks: string;
+};
+
+export type SubmitFlightState =
+  | { ok: false; error: string; values: SubmitFlightValues }
+  | null;
+
+function snapshot(formData: FormData): SubmitFlightValues {
+  const get = (k: string): string => {
+    const v = formData.get(k);
+    return typeof v === "string" ? v : "";
+  };
+  return {
+    depAirport: get("depAirport"),
+    arrAirport: get("arrAirport"),
+    flightDate: get("flightDate"),
+    engineStart: get("engineStart"),
+    engineStop: get("engineStop"),
+    tachyStart: get("tachyStart"),
+    tachyStop: get("tachyStop"),
+    landings: get("landings"),
+    remarks: get("remarks"),
+  };
+}
+
+function fail(values: SubmitFlightValues, error: string): SubmitFlightState {
+  return { ok: false, error, values };
+}
+
+export async function submitFlight(
+  _prev: SubmitFlightState,
+  formData: FormData,
+): Promise<SubmitFlightState> {
   const session = await requireSession();
+  const values = snapshot(formData);
 
   const parsed = SubmitFlightSchema.safeParse({
     depAirport: formData.get("depAirport"),
@@ -65,7 +119,7 @@ export async function submitFlight(formData: FormData) {
     remarks: formData.get("remarks") || undefined,
   });
   if (!parsed.success) {
-    redirect("/flights?error=invalid");
+    return fail(values, "Données invalides. Vérifiez les champs marqués.");
   }
 
   // Compute UTC instants and duration from the bloc OFF / bloc ON times.
@@ -83,7 +137,7 @@ export async function submitFlight(formData: FormData) {
     actualDurationMin = result.durationMin;
   } catch (err) {
     if (err instanceof EngineTimesError) {
-      redirect(`/flights?error=engine&msg=${encodeURIComponent(err.message)}`);
+      return fail(values, err.message);
     }
     throw err;
   }
@@ -93,43 +147,30 @@ export async function submitFlight(formData: FormData) {
   // before the bloc ON minute elapses isn't rejected.
   const nowUtc = new Date();
   if (endsAtUtc.getTime() > nowUtc.getTime() + 60_000) {
-    redirect(
-      `/flights?error=engine&msg=${encodeURIComponent(
-        "Un vol ne peut pas être enregistré dans le futur.",
-      )}`,
-    );
+    return fail(values, "Un vol ne peut pas être enregistré dans le futur.");
   }
 
   // Parse optional tach readings. Present iff BOTH start and stop are
   // supplied; either-both-or-neither so we never store a half-populated
-  // reading. On invalid format, redirect with a French error.
+  // reading.
   let tachyStartHundredths: number | null = null;
   let tachyStopHundredths: number | null = null;
   const rawTachStart = parsed.data.tachyStart;
   const rawTachStop = parsed.data.tachyStop;
   if (rawTachStart || rawTachStop) {
     if (!rawTachStart || !rawTachStop) {
-      redirect(
-        `/flights?error=engine&msg=${encodeURIComponent(
-          "Renseignez TACHY départ ET arrivée, ou laissez les deux vides.",
-        )}`,
+      return fail(
+        values,
+        "Renseignez TACHY départ ET arrivée, ou laissez les deux vides.",
       );
     }
     const ts = parseTachyToHundredths(rawTachStart);
     const te = parseTachyToHundredths(rawTachStop);
     if (ts === null || te === null) {
-      redirect(
-        `/flights?error=engine&msg=${encodeURIComponent(
-          "Format TACHY invalide (attendu XXXX.XX).",
-        )}`,
-      );
+      return fail(values, "Format TACHY invalide (attendu XXXX.XX).");
     }
     if (te < ts) {
-      redirect(
-        `/flights?error=engine&msg=${encodeURIComponent(
-          "TACHY arrivée doit être supérieur à TACHY départ.",
-        )}`,
-      );
+      return fail(values, "TACHY arrivée doit être supérieur à TACHY départ.");
     }
     tachyStartHundredths = ts;
     tachyStopHundredths = te;
@@ -138,14 +179,17 @@ export async function submitFlight(formData: FormData) {
   // Photo keys (rule #6) — V2: optional, but still validated when present.
   const rawKeys = formData.getAll("photoKeys").filter((v) => typeof v === "string") as string[];
   if (rawKeys.length > PHOTO_LIMITS.MAX_PHOTOS_PER_FLIGHT) {
-    redirect("/flights?error=too_many_photos");
+    return fail(values, "Maximum 5 photos par vol.");
   }
   for (const key of rawKeys) {
     if (!isPhotoKeyOwnedBy(key, session.user.id)) {
       console.warn(
         `[flights/new] Pilot ${session.user.id} submitted alien photo key ${key}`,
       );
-      redirect("/flights?error=bad_photo_key");
+      return fail(
+        values,
+        "Photo invalide ou n'appartenant pas à votre compte.",
+      );
     }
   }
   if (rawKeys.length > 0) {
@@ -153,7 +197,10 @@ export async function submitFlight(formData: FormData) {
       await Promise.all(rawKeys.map((k) => headObject(k)));
     } catch (err) {
       console.error("[flights/new] photo HEAD failed:", err);
-      redirect("/flights?error=photo_missing");
+      return fail(
+        values,
+        "Une photo n'a pas été trouvée sur le serveur. Réessayez.",
+      );
     }
   }
 
@@ -197,26 +244,21 @@ export async function submitFlight(formData: FormData) {
       startsAtUtc.getTime() < neighbourRange.endsAtUtc.getTime() &&
       endsAtUtc.getTime() > neighbourRange.startsAtUtc.getTime();
     if (overlaps) {
-      redirect(
-        `/flights?error=engine&msg=${encodeURIComponent(
-          "Un vol existe déjà sur ce créneau horaire.",
-        )}`,
-      );
+      return fail(values, "Un vol existe déjà sur ce créneau horaire.");
     }
   }
 
   // Resolve the active type up-front so we can surface a clean French
-  // error redirect on the rare "no Transaction history at all" case
+  // error message on the rare "no Transaction history at all" case
   // before we open the serializable transaction below.
   const activeTypeId = await resolveActiveFlightHourType(
     prisma,
     session.user.id,
   );
   if (!activeTypeId) {
-    redirect(
-      `/flights?error=no_active_type&msg=${encodeURIComponent(
-        "Aucun forfait actif — contactez l'administrateur avant de saisir un vol.",
-      )}`,
+    return fail(
+      values,
+      "Aucun forfait actif — contactez l'administrateur avant de saisir un vol.",
     );
   }
 
@@ -258,5 +300,6 @@ export async function submitFlight(formData: FormData) {
   revalidatePath("/flights");
   revalidatePath("/dashboard");
   revalidatePath("/calendar");
+  revalidatePath("/admin/carnet-de-route");
   redirect("/flights?added=1");
 }

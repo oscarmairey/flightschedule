@@ -28,6 +28,11 @@ import {
   parisWeekParam,
   formatParisWeekRange,
   parseWeekParam,
+  startOfParisMonth,
+  shiftParisMonth,
+  parisMonthParam,
+  formatParisMonthLabel,
+  parseMonthParam,
 } from "@/lib/format";
 import { formatReservationDuration } from "@/lib/reservationDisplay";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
@@ -39,6 +44,8 @@ import { Alert } from "@/components/ui/Alert";
 import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { AppShell } from "@/components/AppShell";
 import { WeekCalendar } from "@/components/calendar/WeekCalendar";
+import { MonthCalendar } from "@/components/calendar/MonthCalendar";
+import { CalendarViewToggle } from "@/components/calendar/CalendarViewToggle";
 import { resolveBanner } from "@/lib/banners";
 import { adminCancelReservation } from "@/app/calendar/actions";
 import {
@@ -62,6 +69,8 @@ export default async function AdminDisponibilitesPage({
 }: {
   searchParams: Promise<{
     week?: string;
+    month?: string;
+    view?: string;
     error?: string;
     cancelled?: string;
     created?: string;
@@ -75,7 +84,9 @@ export default async function AdminDisponibilitesPage({
   const sp = await searchParams;
 
   const now = new Date();
+  const view: "week" | "month" = sp.view === "month" ? "month" : "week";
   const weekStart = parseWeekParam(sp.week) ?? startOfParisWeek(now);
+  const monthStart = parseMonthParam(sp.month) ?? startOfParisMonth(now);
 
   const [reservations, recurring, overrides, openPeriods] = await Promise.all([
     prisma.reservation.findMany({
@@ -128,6 +139,17 @@ export default async function AdminDisponibilitesPage({
 
   const buildSlotHref = () => "#"; // grid is read-only on the admin page
 
+  // Month-grid click → admin week view for that day. Read-only here, so
+  // there's no booking-form date to seed.
+  const buildDayHrefFromMonth = (yyyymmdd: string) => {
+    const target = new Date(`${yyyymmdd}T12:00:00.000Z`);
+    const targetWeek = parisWeekParam(startOfParisWeek(target));
+    return `/admin/disponibilites?view=week&week=${targetWeek}`;
+  };
+
+  const weekHref = `/admin/disponibilites?view=week&week=${parisWeekParam(weekStart)}`;
+  const monthHref = `/admin/disponibilites?view=month&month=${parisMonthParam(monthStart)}`;
+
   return (
     <AppShell>
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-12">
@@ -154,47 +176,91 @@ export default async function AdminDisponibilitesPage({
           </div>
         )}
 
-        {/* 1. Week calendar grid */}
+        {/* 1. Calendar grid — week or month view */}
         <section className="mb-12">
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <h2 className="font-display text-2xl font-semibold tracking-tight text-text-strong">
               <CalendarRange className="mr-2 inline h-5 w-5" aria-hidden="true" />
-              {formatParisWeekRange(weekStart)}
+              {view === "month"
+                ? formatParisMonthLabel(monthStart)
+                : formatParisWeekRange(weekStart)}
             </h2>
-            <div className="flex items-center gap-2">
-              <Link
-                href={`/admin/disponibilites?week=${parisWeekParam(shiftParisWeek(weekStart, -1))}`}
-              >
-                <Button variant="secondary" size="sm" aria-label="Semaine précédente">
-                  <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-                  <span className="hidden sm:inline">Précédente</span>
-                </Button>
-              </Link>
-              <Link
-                href={`/admin/disponibilites?week=${parisWeekParam(startOfParisWeek(now))}`}
-              >
-                <Button variant="secondary" size="sm">
-                  Aujourd&apos;hui
-                </Button>
-              </Link>
-              <Link
-                href={`/admin/disponibilites?week=${parisWeekParam(shiftParisWeek(weekStart, 1))}`}
-              >
-                <Button variant="secondary" size="sm" aria-label="Semaine suivante">
-                  <span className="hidden sm:inline">Suivante</span>
-                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <CalendarViewToggle
+                current={view}
+                weekHref={weekHref}
+                monthHref={monthHref}
+              />
+              {view === "week" ? (
+                <>
+                  <Link
+                    href={`/admin/disponibilites?view=week&week=${parisWeekParam(shiftParisWeek(weekStart, -1))}`}
+                  >
+                    <Button variant="secondary" size="sm" aria-label="Semaine précédente">
+                      <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                      <span className="hidden sm:inline">Précédente</span>
+                    </Button>
+                  </Link>
+                  <Link
+                    href={`/admin/disponibilites?view=week&week=${parisWeekParam(startOfParisWeek(now))}`}
+                  >
+                    <Button variant="secondary" size="sm">
+                      Aujourd&apos;hui
+                    </Button>
+                  </Link>
+                  <Link
+                    href={`/admin/disponibilites?view=week&week=${parisWeekParam(shiftParisWeek(weekStart, 1))}`}
+                  >
+                    <Button variant="secondary" size="sm" aria-label="Semaine suivante">
+                      <span className="hidden sm:inline">Suivante</span>
+                      <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href={`/admin/disponibilites?view=month&month=${parisMonthParam(shiftParisMonth(monthStart, -1))}`}
+                  >
+                    <Button variant="secondary" size="sm" aria-label="Mois précédent">
+                      <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                      <span className="hidden sm:inline">Précédent</span>
+                    </Button>
+                  </Link>
+                  <Link
+                    href={`/admin/disponibilites?view=month&month=${parisMonthParam(startOfParisMonth(now))}`}
+                  >
+                    <Button variant="secondary" size="sm">
+                      Ce mois-ci
+                    </Button>
+                  </Link>
+                  <Link
+                    href={`/admin/disponibilites?view=month&month=${parisMonthParam(shiftParisMonth(monthStart, 1))}`}
+                  >
+                    <Button variant="secondary" size="sm" aria-label="Mois suivant">
+                      <span className="hidden sm:inline">Suivant</span>
+                      <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </Link>
+                </>
+              )}
             </div>
           </div>
 
           <Card padded={false} className="overflow-hidden">
-            <WeekCalendar
-              weekStart={weekStart}
-              currentUserId={admin.user.id}
-              isAdmin
-              buildSlotHref={buildSlotHref}
-            />
+            {view === "month" ? (
+              <MonthCalendar
+                monthStart={monthStart}
+                buildDayHref={buildDayHrefFromMonth}
+              />
+            ) : (
+              <WeekCalendar
+                weekStart={weekStart}
+                currentUserId={admin.user.id}
+                isAdmin
+                buildSlotHref={buildSlotHref}
+              />
+            )}
           </Card>
 
           <div className="mt-6">

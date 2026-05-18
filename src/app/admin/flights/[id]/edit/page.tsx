@@ -26,8 +26,9 @@ import { Textarea } from "@/components/ui/Textarea";
 import { Label } from "@/components/ui/Label";
 import { Alert } from "@/components/ui/Alert";
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { AppShell } from "@/components/AppShell";
-import { updateFlightAsAdmin } from "./actions";
+import { updateFlightAsAdmin, deleteFlight } from "./actions";
 
 export default async function AdminEditFlightPage({
   params,
@@ -427,6 +428,56 @@ export default async function AdminEditFlightPage({
             </SubmitButton>
           </div>
         </form>
+
+        {/* Hard-delete escape hatch — separate form so confirming the
+            delete dialog cannot accidentally submit the edit form above.
+            Refunds the pilot's HDV via a compensating ADMIN_ADJUSTMENT
+            (see actions.ts deleteFlight). */}
+        <div className="mt-12 rounded-lg border border-danger-soft-border bg-danger-soft/40 p-5">
+          <h2 className="font-display text-lg font-semibold text-text-strong">
+            Supprimer ce vol
+          </h2>
+          <p className="mt-1.5 text-sm text-text-muted">
+            Le vol sera retiré du carnet de bord et le solde HDV de{" "}
+            <span className="font-semibold text-text">{flight.user.name}</span>{" "}
+            sera recrédité de{" "}
+            <span className="font-semibold tabular text-text">
+              {formatHHMM(flight.actualDurationMin)}
+            </span>{" "}
+            via une écriture compensatoire dans l&apos;historique. À utiliser
+            pour une saisie en double ou une erreur impossible à corriger
+            par modification.
+          </p>
+          <div className="mt-4">
+            <ConfirmButton
+              formAction={deleteFlight}
+              hidden={{ flightId: flight.id }}
+              triggerLabel="Supprimer ce vol"
+              triggerVariant="danger"
+              title="Supprimer ce vol ?"
+              body={
+                <>
+                  <p>
+                    Le vol <strong>{flight.depAirport} → {flight.arrAirport}</strong> du{" "}
+                    <strong>{formatDateFR(flight.date)}</strong> ({" "}
+                    {formatHHMM(flight.actualDurationMin)} ) sera supprimé
+                    définitivement.
+                  </p>
+                  <p className="mt-2">
+                    Le solde HDV du pilote sera{" "}
+                    <strong>recrédité de {formatHHMM(flight.actualDurationMin)}</strong>{" "}
+                    via un ajustement administratif visible dans
+                    l&apos;historique.
+                  </p>
+                  <p className="mt-2 font-semibold text-danger">
+                    Cette action est irréversible.
+                  </p>
+                </>
+              }
+              confirmLabel="Supprimer définitivement"
+            />
+          </div>
+        </div>
 
         <p className="mt-8 text-xs text-text-subtle">
           Vol enregistré pour le{" "}
