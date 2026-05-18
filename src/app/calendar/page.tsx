@@ -336,12 +336,10 @@ export default async function CalendarPage({
               <Input
                 id="estimatedFlightHours"
                 name="estimatedFlightHours"
-                type="number"
-                min={0.01}
-                max={999.99}
-                step="0.01"
+                type="text"
                 inputMode="decimal"
-                placeholder="3.50"
+                placeholder="3,50"
+                pattern="\d{1,3}([.,]\d{1,2})?"
                 className="tabular"
               />
               <p className="text-xs text-text-subtle">

@@ -57,6 +57,14 @@ enum BankTransferStatus {
   REJECTED
 }
 
+// Airframe maintenance events logged by the admin from
+// /admin/carnet-de-route. The page also shows the HDV (flight minutes)
+// accumulated since the latest event of each type.
+enum MaintenanceOperationType {
+  ANNUAL_VISIT
+  WORKSHOP_VISIT
+}
+
 // ─── Models ─────────────────────────────────────────────────
 
 model User {
@@ -91,6 +99,7 @@ model User {
   reviewedBankTransfers     BankTransfer[]           @relation("BankTransferReviewedBy")
   updatedBankAccounts       BankAccount[]            @relation("BankAccountUpdatedBy")
   hourBalances              UserFlightHourBalance[]
+  maintenanceOperations     MaintenanceOperation[]   @relation("MaintenanceOperationCreatedBy")
 
   @@index([email])
   @@index([isActive])
@@ -444,4 +453,27 @@ model UserFlightHourBalance {
   @@id([userId, flightHourTypeId])
   @@index([userId])
   @@index([flightHourTypeId])
+}
+
+// Airframe maintenance log. Admin records each annual visit (visite
+// annuelle) and workshop visit (visite atelier) with its calendar date.
+// /admin/carnet-de-route renders the latest event of each type plus the
+// HDV (flight minutes) accumulated since — `SUM(Flight.actualDurationMin
+// WHERE date > latestEvent.date)`. Events are aircraft-wide, not
+// per-pilot (one shared airframe).
+model MaintenanceOperation {
+  id          String                   @id @default(uuid()) @db.Uuid
+  type        MaintenanceOperationType
+  date        DateTime                 @db.Date
+  notes       String?
+
+  createdById String                   @db.Uuid
+  createdBy   User                     @relation("MaintenanceOperationCreatedBy", fields: [createdById], references: [id])
+
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+
+  @@index([type, date(sort: Desc)])
+  @@index([date(sort: Desc)])
+  @@index([createdById])
 }

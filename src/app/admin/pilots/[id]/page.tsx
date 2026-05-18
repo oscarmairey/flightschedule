@@ -324,8 +324,8 @@ export default async function PilotDetailPage({
                   name="amount"
                   type="text"
                   required
-                  inputMode="numeric"
-                  placeholder="ex : 1h30 ou 90"
+                  placeholder="ex : 1h30, 1:30 ou 90"
+                  pattern="\d{1,3}([h:]\d{0,2})?|\d{1,4}"
                   className="tabular"
                 />
               </div>
