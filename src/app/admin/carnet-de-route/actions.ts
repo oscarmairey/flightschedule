@@ -17,6 +17,9 @@ import { UuidSchema } from "@/lib/validation";
 const CreateSchema = z.object({
   type: z.enum(["ANNUAL_VISIT", "WORKSHOP_VISIT"]),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date invalide"),
+  // Time-of-day from an <input type="time"> — "HH:MM", 24h. Required so a
+  // visit can be placed between same-day flights (HDV-depuis calc).
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Heure invalide"),
   notes: z.string().trim().max(500).optional(),
 });
 
@@ -26,11 +29,15 @@ export async function createMaintenanceOperation(formData: FormData) {
   const parsed = CreateSchema.safeParse({
     type: formData.get("type"),
     date: formData.get("date"),
+    time: formData.get("time"),
     notes: formData.get("notes") || undefined,
   });
   if (!parsed.success) {
     redirect("/admin/carnet-de-route?error=invalid");
   }
+
+  const [hh, mm] = parsed.data.time.split(":");
+  const timeMin = Number(hh) * 60 + Number(mm);
 
   // Reject far-future dates — maintenance is logged AFTER it happens.
   // The `Flight.date > maintenance.date` comparison would otherwise
@@ -47,6 +54,7 @@ export async function createMaintenanceOperation(formData: FormData) {
       type: parsed.data.type,
       // DATE column — passing a UTC midnight Date works with PrismaPg.
       date: new Date(`${parsed.data.date}T00:00:00.000Z`),
+      timeMin,
       notes: parsed.data.notes ?? null,
       createdById: admin.user.id,
     },

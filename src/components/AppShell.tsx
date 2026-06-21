@@ -211,18 +211,44 @@ export async function AppShell({ children }: { children: ReactNode }) {
             );
           })}
           {isAdmin && (
-            <Link
-              href="/admin/pilots"
-              aria-current={adminOpen ? "page" : undefined}
-              className={`flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[0.65rem] font-medium transition-colors duration-[var(--duration-fast)] ease-[var(--ease-out-ui)] ${
-                adminOpen
-                  ? "bg-brand-soft text-brand-soft-fg"
-                  : "text-text-muted hover:bg-surface-sunken hover:text-brand"
-              }`}
-            >
-              <Shield className="h-5 w-5" aria-hidden="true" />
-              <span className="text-center leading-tight">{COPY.nav.admin}</span>
-            </Link>
+            <details className="group relative">
+              <summary
+                aria-current={adminOpen ? "page" : undefined}
+                className={`flex min-h-12 cursor-pointer list-none flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[0.65rem] font-medium transition-colors duration-[var(--duration-fast)] ease-[var(--ease-out-ui)] [&::-webkit-details-marker]:hidden ${
+                  adminOpen
+                    ? "bg-brand-soft text-brand-soft-fg"
+                    : "text-text-muted hover:bg-surface-sunken hover:text-brand"
+                }`}
+              >
+                <Shield className="h-5 w-5" aria-hidden="true" />
+                <span className="text-center leading-tight">
+                  {COPY.nav.admin}
+                </span>
+              </summary>
+              {/* Opens upward, above the bottom bar. */}
+              <div className="absolute bottom-full right-0 z-30 mb-2 min-w-52 overflow-hidden rounded-lg border border-border bg-surface-elevated shadow-lg">
+                <ul className="py-1.5">
+                  {ADMIN_ITEMS.map((item) => {
+                    const active = isActive(item.href, pathname);
+                    return (
+                      <li key={item.href}>
+                        <Link
+                          href={item.href}
+                          aria-current={active ? "page" : undefined}
+                          className={`block px-4 py-2.5 text-sm transition-colors duration-[var(--duration-fast)] ease-[var(--ease-out-ui)] ${
+                            active
+                              ? "bg-brand-soft text-brand-soft-fg"
+                              : "text-text-muted hover:bg-surface-sunken hover:text-text-strong"
+                          }`}
+                        >
+                          {item.label}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </details>
           )}
         </div>
       </nav>

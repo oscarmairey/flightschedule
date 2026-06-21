@@ -375,6 +375,34 @@ export async function deleteFlight(formData: FormData) {
     redirect("/admin/pilots");
   }
 
+  // Forfait-compatibility guard (manager request): deleting a past flight
+  // refunds +actualDurationMin to the SAME FlightHourType wallet that the
+  // original FLIGHT_DEBIT hit. If the pilot has since moved to another
+  // forfait (holds a non-zero balance in a DIFFERENT type), that refund
+  // would resurrect a now-inactive wallet and break the single-active-type
+  // invariant — exactly the "pb de mon compte" we're preventing. Block the
+  // delete in that case and let the admin reconcile via ADMIN_ADJUSTMENT on
+  // /admin/pilots/[id]. (Flights without a FLIGHT_DEBIT — e.g. imports —
+  // have no refund to misroute, so they stay deletable.)
+  const originalDebit = await prisma.transaction.findFirst({
+    where: { flightId: existing.id, type: "FLIGHT_DEBIT" },
+    select: { flightHourTypeId: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (originalDebit) {
+    const conflicting = await prisma.userFlightHourBalance.findFirst({
+      where: {
+        userId: existing.userId,
+        flightHourTypeId: { not: originalDebit.flightHourTypeId },
+        balanceMin: { not: 0 },
+      },
+      select: { flightHourTypeId: true },
+    });
+    if (conflicting) {
+      redirect(editUrl(existing.id, "error=type_mismatch"));
+    }
+  }
+
   await prisma.$transaction(
     async (tx) => {
       // Re-read under serializable lock so the duration we refund matches

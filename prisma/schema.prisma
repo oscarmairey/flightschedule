@@ -465,6 +465,11 @@ model MaintenanceOperation {
   id          String                   @id @default(uuid()) @db.Uuid
   type        MaintenanceOperationType
   date        DateTime                 @db.Date
+  // Paris-local time-of-day of the visit, minutes since midnight (0–1439).
+  // Lets a visit sit between two flights on the same day so "HDV depuis"
+  // only counts flights flown after it. NULL = legacy/whole-day visit:
+  // same-day flights are excluded (the original `date >` strict behaviour).
+  timeMin     Int?
   notes       String?
 
   createdById String                   @db.Uuid

@@ -60,6 +60,32 @@ export default async function AdminEditFlightPage({
   });
   const pilotNetMin = pilotBalanceAgg._sum.balanceMin ?? 0;
 
+  // Forfait-compatibility check for the delete escape hatch. Deleting a
+  // flight refunds its HDV to the original FLIGHT_DEBIT wallet; if the
+  // pilot now holds a non-zero balance in a DIFFERENT forfait, that refund
+  // would break the single-active-type invariant. The action enforces this
+  // server-side (see deleteFlight); here we mirror it so the button is
+  // disabled with an explanation instead of failing on submit.
+  const originalDebit = await prisma.transaction.findFirst({
+    where: { flightId: flight.id, type: "FLIGHT_DEBIT" },
+    select: {
+      flightHourTypeId: true,
+      flightHourType: { select: { name: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  const conflictingBalance = originalDebit
+    ? await prisma.userFlightHourBalance.findFirst({
+        where: {
+          userId: flight.user.id,
+          flightHourTypeId: { not: originalDebit.flightHourTypeId },
+          balanceMin: { not: 0 },
+        },
+        select: { flightHourType: { select: { name: true } } },
+      })
+    : null;
+  const deleteBlocked = conflictingBalance !== null;
+
   // Photo presign — same pattern as FlightHistory. Failed presigns
   // become "?" placeholders so a single missing blob doesn't break
   // the page.
@@ -93,6 +119,10 @@ export default async function AdminEditFlightPage({
       msg: (s) => s.msg ?? "Heures bloc OFF / bloc ON invalides.",
     },
     "error:invalid": { tone: "error", msg: COPY.errors.invalidInput },
+    "error:type_mismatch": {
+      tone: "error",
+      msg: "Suppression impossible : ce vol a été payé sur un forfait qui n'est plus le forfait actif du pilote. Le remboursement créerait un solde sur un forfait inactif. Régularisez le solde via un ajustement sur la fiche du pilote.",
+    },
   });
 
   // Default the date <input type="date"> value from the stored Flight.date.
@@ -437,17 +467,42 @@ export default async function AdminEditFlightPage({
           <h2 className="font-display text-lg font-semibold text-text-strong">
             Supprimer ce vol
           </h2>
-          <p className="mt-1.5 text-sm text-text-muted">
-            Le vol sera retiré du carnet de bord et le solde HDV de{" "}
-            <span className="font-semibold text-text">{flight.user.name}</span>{" "}
-            sera recrédité de{" "}
-            <span className="font-semibold tabular text-text">
-              {formatHHMM(flight.actualDurationMin)}
-            </span>{" "}
-            via une écriture compensatoire dans l&apos;historique. À utiliser
-            pour une saisie en double ou une erreur impossible à corriger
-            par modification.
-          </p>
+          {deleteBlocked ? (
+            <p className="mt-1.5 text-sm text-text-muted">
+              Suppression indisponible : ce vol a été débité sur le forfait{" "}
+              <span className="font-semibold text-text">
+                {originalDebit?.flightHourType.name}
+              </span>
+              , mais{" "}
+              <span className="font-semibold text-text">{flight.user.name}</span>{" "}
+              détient désormais des heures sur un autre forfait (
+              <span className="font-semibold text-text">
+                {conflictingBalance?.flightHourType.name}
+              </span>
+              ). Recréditer un forfait inactif fausserait le compte du pilote.
+              Pour corriger, passez par un ajustement HDV sur la{" "}
+              <Link
+                href={`/admin/pilots/${flight.user.id}`}
+                className="font-medium text-brand underline-offset-2 hover:underline"
+              >
+                fiche du pilote
+              </Link>
+              .
+            </p>
+          ) : (
+            <p className="mt-1.5 text-sm text-text-muted">
+              Le vol sera retiré du carnet de bord et le solde HDV de{" "}
+              <span className="font-semibold text-text">{flight.user.name}</span>{" "}
+              sera recrédité de{" "}
+              <span className="font-semibold tabular text-text">
+                {formatHHMM(flight.actualDurationMin)}
+              </span>{" "}
+              via une écriture compensatoire dans l&apos;historique. À utiliser
+              pour une saisie en double ou une erreur impossible à corriger
+              par modification.
+            </p>
+          )}
+          {!deleteBlocked && (
           <div className="mt-4">
             <ConfirmButton
               formAction={deleteFlight}
@@ -477,6 +532,7 @@ export default async function AdminEditFlightPage({
               confirmLabel="Supprimer définitivement"
             />
           </div>
+          )}
         </div>
 
         <p className="mt-8 text-xs text-text-subtle">

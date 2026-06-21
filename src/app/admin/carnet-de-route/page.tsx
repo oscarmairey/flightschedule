@@ -34,7 +34,7 @@ import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { COPY } from "@/lib/copy";
 import { formatDateFR } from "@/lib/format";
-import { formatHHMM, formatHHMMOrDays } from "@/lib/duration";
+import { formatHHMM } from "@/lib/duration";
 import {
   getMaintenanceSummaries,
   MAINTENANCE_TYPE_LABELS,
@@ -64,6 +64,13 @@ function todayParisYmd(): string {
   }).formatToParts(new Date());
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "01";
   return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+/** Minutes since midnight → 24h clock "HH:MM" (zero-padded). */
+function formatTimeMin(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
 }
 
 export default async function CarnetDeRoutePage({
@@ -96,7 +103,11 @@ export default async function CarnetDeRoutePage({
     }),
     getMaintenanceSummaries(),
     prisma.maintenanceOperation.findMany({
-      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      orderBy: [
+        { date: "desc" },
+        { timeMin: { sort: "desc", nulls: "last" } },
+        { createdAt: "desc" },
+      ],
       include: { createdBy: { select: { name: true } } },
     }),
   ]);
@@ -166,12 +177,15 @@ export default async function CarnetDeRoutePage({
                   Dernière :{" "}
                   <span className="font-semibold tabular text-text-strong">
                     {s.latestDate ? formatDateFR(s.latestDate) : "—"}
+                    {s.latestDate && s.latestTimeMin !== null && (
+                      <> à {formatTimeMin(s.latestTimeMin)}</>
+                    )}
                   </span>
                 </p>
                 <p className="mt-1 font-display text-base text-text-muted">
                   HDV depuis :{" "}
                   <span className="font-semibold tabular text-text-strong">
-                    {formatHHMMOrDays(s.hdvSinceMin)}
+                    {formatHHMM(s.hdvSinceMin)}
                   </span>
                   {!s.latestDate && (
                     <span className="ml-2 text-sm text-text-subtle">
@@ -188,13 +202,14 @@ export default async function CarnetDeRoutePage({
             <CardHeader>
               <CardTitle>Enregistrer une opération</CardTitle>
               <CardDescription>
-                Notez la date à laquelle la visite a eu lieu (passé ou
-                aujourd&apos;hui).
+                Notez la date et l&apos;heure auxquelles la visite a eu lieu.
+                L&apos;heure permet de situer la visite entre deux vols du même
+                jour pour le calcul des HDV.
               </CardDescription>
             </CardHeader>
             <form
               action={createMaintenanceOperation}
-              className="grid gap-3 sm:grid-cols-4"
+              className="grid gap-3 sm:grid-cols-5"
             >
               <div className="space-y-1.5 sm:col-span-1">
                 <Label htmlFor="m-type" required>
@@ -223,6 +238,19 @@ export default async function CarnetDeRoutePage({
                   className="tabular"
                 />
               </div>
+              <div className="space-y-1.5 sm:col-span-1">
+                <Label htmlFor="m-time" required>
+                  Heure
+                </Label>
+                <Input
+                  id="m-time"
+                  name="time"
+                  type="time"
+                  step="60"
+                  required
+                  className="tabular"
+                />
+              </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="m-notes">Notes</Label>
                 <Input
@@ -233,7 +261,7 @@ export default async function CarnetDeRoutePage({
                   maxLength={500}
                 />
               </div>
-              <div className="sm:col-span-4">
+              <div className="sm:col-span-5">
                 <Button type="submit">Enregistrer</Button>
               </div>
             </form>
@@ -266,6 +294,12 @@ export default async function CarnetDeRoutePage({
                     >
                       <td className="py-3 pr-4 tabular text-text">
                         {formatDateFR(m.date)}
+                        {m.timeMin !== null && (
+                          <span className="text-text-muted">
+                            {" "}
+                            à {formatTimeMin(m.timeMin)}
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 pr-4 font-medium text-text-strong">
                         {MAINTENANCE_TYPE_LABELS[m.type]}
@@ -333,7 +367,7 @@ export default async function CarnetDeRoutePage({
               <span className="mx-2 text-text-subtle">·</span>
               total{" "}
               <span className="font-semibold tabular text-text">
-                {formatHHMMOrDays(totalMin)}
+                {formatHHMM(totalMin)}
               </span>
             </p>
             <Link

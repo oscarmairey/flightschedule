@@ -7,6 +7,8 @@ import {
   makeUser,
   ensureStandardFlightHourType,
   getUserNetBalance,
+  makeFlightHourType,
+  makeUserBalance,
 } from "../setup/factories";
 import { applyHdvMutation } from "@/lib/hdv";
 
@@ -424,6 +426,42 @@ describe("deleteFlight — admin only (V2.5)", () => {
 
     // Net balance is back to the pre-flight starting point (600).
     expect(await getUserNetBalance(seeded.pilotId)).toBe(600);
+  });
+
+  it("blocks deletion when the pilot now holds a balance in another forfait", async () => {
+    const prisma = getTestPrisma();
+    const seeded = await seedOneHourFlight();
+    currentAdminId = seeded.adminId;
+
+    // Pilot has since switched forfaits: a non-zero balance now lives on a
+    // DIFFERENT FlightHourType than the one the flight debited. Refunding
+    // the flight would resurrect the old wallet and break the
+    // single-active-type invariant — the delete must be refused.
+    const otherType = await makeFlightHourType();
+    await makeUserBalance({
+      userId: seeded.pilotId,
+      flightHourTypeId: otherType.id,
+      balanceMin: 300,
+    });
+
+    const { deleteFlight } = await import(
+      "@/app/admin/flights/[id]/edit/actions"
+    );
+    const fd = new FormData();
+    fd.set("flightId", seeded.flightId);
+
+    const r = await runExpectingRedirect(() => deleteFlight(fd));
+    expect(r.url).toMatch(/error=type_mismatch/);
+
+    // Flight is untouched and no compensating refund was written.
+    expect(
+      await prisma.flight.findUnique({ where: { id: seeded.flightId } }),
+    ).not.toBeNull();
+    expect(
+      await prisma.transaction.count({
+        where: { userId: seeded.pilotId, type: "ADMIN_ADJUSTMENT" },
+      }),
+    ).toBe(0);
   });
 
   it("is a no-op redirect on unknown flightId", async () => {
